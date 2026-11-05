@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --sd-canvas: #f6f8f7;
+  --sd-surface: #ffffff;
+  --sd-surface-subtle: #f1f5f3;
+  --sd-primary: #147d70;
+  --sd-primary-hover: #0f695e;
+  --sd-primary-soft: #e9f4f1;
+  --sd-primary-border: #b7dcd3;
+  --sd-text: #17211f;
+  --sd-text-secondary: #5f6f6a;
+  --sd-text-tertiary: #87948f;
+  --sd-border: #dce5e1;
+  --sd-border-strong: #c3d0cb;
+  --sd-warning: #a15c00;
+  --sd-warning-soft: #fff4e5;
+  --sd-danger: #b42318;
+  --sd-danger-soft: #fdecea;
+  --sd-success: #18794e;
+  --sd-success-soft: #e8f5ee;
+  --sd-info: #365f73;
+  --sd-info-soft: #eaf2f6;
+  --sd-font-sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --sd-font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-canvas text-ink antialiased;
+    font-family: var(--sd-font-sans);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  * {
+    border-color: var(--sd-border);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--sd-primary);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--sd-primary-soft);
+    color: var(--sd-text);
+  }
+}
+
+@layer components {
+  .sd-card {
+    @apply rounded-card border border-line bg-surface shadow-card;
+  }
+
+  .sd-button-primary {
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-control border border-brand bg-brand px-3 text-xs font-medium text-white transition-colors duration-150 hover:bg-brand-hover disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .sd-button-secondary {
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-control border border-line-strong bg-surface px-3 text-xs font-medium text-ink transition-colors duration-150 hover:border-ink-tertiary disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .sd-button-ghost {
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-control border border-transparent px-3 text-xs font-medium text-brand transition-colors duration-150 hover:bg-brand-soft disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .sd-input {
+    @apply h-9 w-full rounded-control border border-line-strong bg-surface px-3 text-sm text-ink outline-none transition-colors duration-150 placeholder:text-ink-tertiary focus:border-brand;
+  }
+
+  .sd-textarea {
+    @apply w-full resize-none rounded-control border border-line-strong bg-surface px-3 py-2.5 text-sm text-ink outline-none transition-colors duration-150 placeholder:text-ink-tertiary focus:border-brand;
+  }
+
+  .sd-label {
+    @apply mb-1.5 block text-xs font-medium text-ink-secondary;
+  }
+
+  .sd-chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-ink-secondary;
+  }
+
+  .sd-eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.1em] text-brand;
+  }
+
+  .sd-page-title {
+    @apply text-[20px] font-semibold leading-7 tracking-[-0.01em] text-ink;
+  }
+
+  .sd-muted {
+    @apply text-xs text-ink-secondary;
+  }
+
+  .sd-divider {
+    @apply h-px w-full bg-line;
+  }
+}

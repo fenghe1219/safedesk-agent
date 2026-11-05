@@ -1,0 +1,31 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / Next
+node_modules/
+.next/
+out/
+npm-debug.log*
+*.tsbuildinfo
+
+# Local runtime artifacts
+.chrome-preview/
+.edge-preview/
+*.sqlite3
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

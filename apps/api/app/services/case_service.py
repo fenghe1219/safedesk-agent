@@ -1,0 +1,92 @@
+from app.models.audit import AuditEvent
+from app.models.case import Case
+from app.schemas.case import CaseOut, TimelineEventOut
+
+CASE_STATUS_LABELS: dict[str, str] = {
+    "NEW": "新问题",
+    "UNDERSTANDING": "正在理解",
+    "RETRIEVING": "正在检索",
+    "DIAGNOSING": "正在核对依据",
+    "NEEDS_INPUT": "等待补充",
+    "ANSWERED": "已回答",
+    "TICKET_DRAFT": "工单待确认",
+    "TICKET_OPEN": "已转工单",
+    "ACTION_PROPOSED": "动作待确认",
+    "AWAITING_APPROVAL": "等待审批",
+    "EXECUTING": "执行中",
+    "REJECTED": "审批未通过",
+    "EXPIRED": "审批已过期",
+    "RESOLVED": "已解决",
+    "FAILED": "执行失败",
+    "CANCELLED": "已关闭",
+    "REFUSED": "无法处理",
+}
+
+CASE_PHASES: dict[str, str] = {
+    "NEW": "intake",
+    "UNDERSTANDING": "intake",
+    "RETRIEVING": "retrieval",
+    "DIAGNOSING": "retrieval",
+    "NEEDS_INPUT": "retrieval",
+    "ANSWERED": "solution",
+    "TICKET_DRAFT": "solution",
+    "TICKET_OPEN": "solution",
+    "REFUSED": "solution",
+    "ACTION_PROPOSED": "approval",
+    "AWAITING_APPROVAL": "approval",
+    "EXECUTING": "approval",
+    "REJECTED": "approval",
+    "EXPIRED": "approval",
+    "FAILED": "approval",
+    "RESOLVED": "done",
+    "CANCELLED": "done",
+}
+
+EVENT_SUMMARIES: dict[str, str] = {
+    "case.created": "创建 Case",
+    "case.updated": "更新 Case",
+    "case.closed": "关闭 Case",
+    "case.reopened": "重新打开 Case",
+    "message.received": "收到用户消息",
+    "answer.generated": "生成回答",
+    "answer.refused": "拒答",
+    "ticket.created": "创建工单",
+    "action.proposed": "提议动作",
+    "approval.requested": "请求审批",
+    "approval.approved": "审批通过",
+    "approval.rejected": "审批拒绝",
+    "approval.expired": "审批过期",
+    "tool.executed": "执行工具",
+    "tool.failed": "工具执行失败",
+    "action.verified": "验证执行结果",
+    "auth.login": "登录",
+    "auth.logout": "退出",
+    "auth.demo_switch": "切换演示身份",
+}
+
+
+def to_case_out(case: Case) -> CaseOut:
+    return CaseOut(
+        id=case.id,
+        title=case.title,
+        status=case.status,
+        status_label=CASE_STATUS_LABELS.get(case.status, case.status),
+        phase=CASE_PHASES.get(case.status, "intake"),
+        requester_id=case.requester_id,
+        current_node=case.current_node,
+        intent=case.intent,
+        created_at=case.created_at,
+        updated_at=case.updated_at,
+    )
+
+
+def to_timeline_event(event: AuditEvent) -> TimelineEventOut:
+    return TimelineEventOut(
+        id=event.id,
+        event_type=event.event_type,
+        summary=EVENT_SUMMARIES.get(event.event_type, event.event_type),
+        actor_id=event.actor_id,
+        actor_role=event.actor_role,
+        result=event.result,
+        created_at=event.created_at,
+    )

@@ -1,0 +1,56 @@
+name: safedesk
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-safedesk}
+      POSTGRES_USER: ${POSTGRES_USER:-safedesk}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-safedesk}
+    ports:
+      - "5432:5432"
+    volumes:
+      - safedesk_db:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-safedesk} -d ${POSTGRES_DB:-safedesk}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: ./apps/api
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-safedesk}:${POSTGRES_PASSWORD:-safedesk}@db:5432/${POSTGRES_DB:-safedesk}
+      DEMO_MODE: "true"
+      SEED_DEMO: "true"
+      SESSION_COOKIE_SECURE: "false"
+      SECRET_KEY: ${SECRET_KEY:-dev-only-change-me}
+      CORS_ORIGINS: '["http://localhost:3000"]'
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: ./apps/web
+    environment:
+      API_INTERNAL_URL: http://api:8000
+      NEXT_PUBLIC_APP_NAME: SafeDesk
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  safedesk_db:
