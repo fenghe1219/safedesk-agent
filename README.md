@@ -2,7 +2,7 @@
 
 可审计、可评估、可人工接管的企业服务台 Agent 工作台。
 
-当前进度：**M3 审批与受控执行已完成并通过本机验收**。在 M2 分诊与工单之上，已接入只读诊断、写动作提议、固定参数快照、人工审批、受控执行、结果复核、幂等控制与数据库检查点。评估控制台、运营看板和管理配置页等 M4 内容尚未接入。
+当前进度：**M4 评估、运营看板与管理配置已完成并通过本机验收**。在 M3 受控执行之上，已接入固定评估集、三类评估运行与人工复核、可配置回归门禁、运营看板、审计检索、消息反馈，以及工具、运行参数、Prompt、用户和演示数据管理。当前仍使用本地规则基线与 Mock 工具，不代表真实外部模型效果。
 
 ![M0 登录页](docs/design-preview/m0-login.png)
 
@@ -52,7 +52,8 @@ Browser
 - M3 只读工具由服务端自动执行并记录审计；写工具只能经 Action/Approval 状态机调用，不提供公开的 `/tools/execute`。
 - Action、Approval 和 ToolExecution 在批准前固定参数哈希；每个 Action 最多一条执行记录，重复批准返回首次执行结果。
 - 工作流使用显式状态机与数据库检查点；检查点缺失时可由 Action/Approval 业务状态重建待审批节点。
-- 工具策略与 Kill Switch 已提供 Admin API；可视化管理界面保留到 M4。
+- M4 工具策略、Kill Switch、运行参数、Prompt 版本、用户与部门均可在 `/settings` 管理；检索/上下文/审批 TTL/回归阈值等运行参数会实际影响服务端行为。
+- M4 评估使用 40 条知识问答、80 条工单分诊和 15 条安全场景固定集；运行结果保留检索配置、指标、延迟、成本和人工复核记录。
 - MVP 暂不引入 Redis。
 
 ## M0 已实现
@@ -74,7 +75,7 @@ Browser
 - 拒答：敏感越权、提示注入式请求与无足够证据的问题不生成操作步骤，记录 `answer.refused` 审计事件。
 - 来源定位：引用可打开原文阅读器，按字符偏移高亮精确片段；文档停用后历史引用标记“来源已停用”。
 - 工作台：新建 Case 后自动发起首轮问题，展示流式步骤、回答、证据面板、精确状态与时间线。
-- 演示数据：空库启动即包含 VPN、打印机、账号锁定、敏感数据规范和会议室五份合成知识文档。
+- 演示数据：空库启动即包含 12 篇合成知识文档，覆盖 VPN、打印、账号、邮箱、软件、硬件、安全事件和协作空间。
 
 ### M1 演示路径
 
@@ -121,6 +122,34 @@ Browser
 3. 回到 Case 工作台，确认 Action/Execution 为 `SUCCEEDED`、只读复核通过、Case 进入 `RESOLVED`，时间线包含提议、审批、执行和验证事件。
 4. 重复批准同一审批，确认返回同一执行结果且不新增 ToolExecution；管理员可通过 Admin API 演练工具停用、执行失败和 Kill Switch 阻断。
 
+## M4 已实现
+
+- 固定评估集：知识问答 40 条、工单分诊 80 条、安全场景 15 条；支持导入 JSONL/CSV，单次最多 500 条。
+- 评估运行：同步执行知识、分诊、安全三类评估，保存 Prompt/模型/检索/Run 配置，以及逐样本实际输出、引用、延迟、Token、成本和失败原因。
+- 人工复核：评估员可按样本标记 `PASS`/`FAIL` 并填写备注；复核结果与审计事件持久化。
+- 回归门禁：`GET /api/eval/compare` 返回逐指标差异、动态阈值、阻断状态与阻断指标；阈值来自运行时配置。
+- 运营看板：`/dashboard` 支持 `7d`/`30d`，展示 Case 总量、知识解决率、转单率、审批与失败、分类/优先级分布、人工修正率、处理与审批时长、重复执行阻断、回答/检索/工具延迟、成本和评估趋势，并返回各项样本量与口径说明。
+- 审计检索：`/audit` 支持 Case、操作者、事件类型、结果、关键词、时间范围与分页过滤；敏感 payload 由服务端脱敏后展示。
+- 消息反馈：`POST /api/messages/{message_id}/feedback` 支持 `helpful`/`unhelpful`、原因和备注；同一用户对同一消息幂等更新，反馈只作为候选样本，不直接修改知识库。
+- 系统配置：`/settings` 管理工具启停与 Mock 模式、Kill Switch、运行参数、Prompt 版本、用户角色/部门/启停、分类矩阵与演示数据重置。
+- 演示重置：管理员输入 `RESET-DEMO` 后清理业务数据并恢复 12 篇文档、3 个固定数据集和默认 Mock 工具配置；审计历史保留，重置动作写入 `demo.reset`。
+- 数据库迁移：`0005_eval_dashboard_settings` 新增 `prompt_versions`、`eval_datasets`、`eval_items`、`eval_runs`、`eval_results`、`message_feedback`。
+
+### M4 演示路径
+
+1. 使用评估员登录 `/evaluations`，依次运行知识、分诊和安全三个固定数据集，查看样本量、指标、延迟、成本和逐样本结果。
+2. 打开评估结果对比，确认指标差异、回归阈值和阻断标记；人工复核至少一条样本并填写备注。
+3. 切换到审计员，在 `/dashboard` 查看 7d/30d 指标与样本量，在 `/audit` 按事件类型、关键词和时间范围检索并展开脱敏 payload。
+4. 切换到管理员，在 `/settings` 调整检索 Top-K、上下文片段、审批 TTL 或回归阈值，保存后回到会话或评估确认生效；可查看 `config.changed` 审计。
+5. 员工可在 Case 工作台对助手回答提交反馈，确认反馈只产生候选样本和 `feedback.submitted` 审计，不修改知识文档。
+
+### M4 指标口径
+
+- 评估基线为本地 `extractive-rag-v1` 规则实现；知识问答、分诊和安全指标仅用于固定集回归，不代表开放域准确率。
+- 延迟、Token 和成本是本地估算，不构成外部模型账单或真实生产 SLA。
+- Prompt 版本目前提供版本记录、激活状态和管理审计；回答生成仍由本地规则链路完成，Prompt 文本尚未作为真实模型调用参数。
+- 演示库包含 12 篇种子文档；若沿用旧演示卷，可能额外保留此前上传的历史文档，不影响种子数据完整性。
+
 ## 本地开发
 
 前端：
@@ -157,13 +186,19 @@ ruff check .
 
 ## 当前验证状态
 
-以下为 2026-11-06 的本机 M3 验收结果。
+以下为 2026-11-06 的本机 M4 验收结果。
 
 - `npm run typecheck`：通过。
 - `npm run build`：通过，App Router 页面与动态路由成功生成。
-- `pytest`：46/46 通过（覆盖检索、ACL、SSE、工单、动作识别、审批权限、过期/自审批/范围阻断、参数哈希、工具启停、Kill Switch、幂等执行、检查点恢复与审计；测试使用 SQLite 内存库）。
+- `pytest`：54/54 通过（在 M3 覆盖基础上增加固定数据集、三类评估、对比门禁、JSONL 导入、人工复核、看板统计、审计脱敏、运行时参数生效、用户/Prompt 管理、反馈候选语义和演示重置；测试使用 SQLite 内存库）。
 - `ruff check app migrations tests`：通过（FastAPI 的 `Depends` 默认参数规则 B008 已按框架惯例忽略）。
-- Docker Compose 运行态验收：db/api/web 均健康，Alembic 为 `0004_actions_approvals_workflow (head)`，5 份演示知识成功加载。
+- Docker Compose 运行态验收：db/api/web 均健康，Alembic 为 `0005_eval_dashboard_settings (head)`，12/12 篇演示知识、40/80/15 三个固定数据集成功加载。
+- M4 页面验收：Admin 的 `/evaluations`、`/dashboard`、`/audit`、`/settings` 均返回 200；Evaluator 仅可进入评估与知识，Auditor 仅可进入审计与看板，Support 可看板但不可审计，Employee 无看板/评估/审计/配置权限。
+- M4 数据验收：看板接口同时支持 `range=7d` 与 `range=30d`；审计返回事件类型与脱敏 payload；配置接口返回运行时参数、Prompt、用户和分类矩阵。
+- M4 真实评估：在 Compose/PostgreSQL 上运行安全场景固定集 15 条，Run 完成、结果分页 15 条、看板评估趋势和 `eval.run_completed` 审计均验证通过。
+- M4 运行参数：检索 Top-K、最低相关度、上下文片段、回答风格、审批 TTL 和回归阈值均由服务端读取；测试验证了参数变化对检索、回答、审批和比较结果的实际影响。
+- M4 存储修复：PostgreSQL 严格长度校验发现并修复了超长 M4 主键前缀；新增回归断言确保评估样本与反馈 ID 不超过 40 字符。
+- M4 API/Web 日志：页面与真实评估验收期间无未处理异常。
 - M3 端到端：经 Next 同源代理完成员工提议、只读诊断、审批人批准、Mock 工具执行、只读复核、Case 解决与 `/approvals` / Case 页面 200 验证。
 - M3 幂等：重复批准返回同一 Execution，`tool.executed` 审计仍只有一条。
 - M3 审计：确认存在 `tool.read_executed`、`action.proposed`、`approval.requested`、`approval.approved`、`tool.executing`、`tool.executed`、`action.verified`、`case.resolved` 事件。

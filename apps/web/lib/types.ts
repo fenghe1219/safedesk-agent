@@ -370,3 +370,273 @@ export interface ApiErrorBody {
     request_id?: string;
   };
 }
+
+export type EvalDatasetType = "knowledge" | "triage" | "security";
+
+export interface EvalDataset {
+  id: string;
+  name: string;
+  dataset_type: EvalDatasetType;
+  version: string;
+  description: string;
+  item_count: number;
+  is_fixed: boolean;
+  created_at: string;
+}
+
+export interface EvalDatasetListResponse {
+  items: EvalDataset[];
+}
+
+export interface EvalItem {
+  id: string;
+  ordinal: number;
+  input: Record<string, unknown>;
+  expected: Record<string, unknown>;
+  labels: Record<string, unknown>;
+  source: string;
+}
+
+export interface EvalDatasetDetail extends EvalDataset {
+  items: EvalItem[];
+}
+
+export interface EvalMetrics {
+  sample_size: number;
+  pass_rate: number;
+  avg_latency_ms: number;
+  avg_cost_usd: number;
+  cost_note?: string;
+  latency_note?: string;
+  metric_sample_sizes?: Record<string, number>;
+  [key: string]: unknown;
+}
+
+export interface EvalRun {
+  id: string;
+  dataset_id: string;
+  dataset_name: string;
+  dataset_type: EvalDatasetType;
+  label: string;
+  prompt_version: string;
+  model_settings: Record<string, unknown>;
+  retrieval_config: Record<string, unknown>;
+  run_config: Record<string, unknown>;
+  status: string;
+  metrics: EvalMetrics;
+  sample_count: number;
+  created_by_id: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface EvalRunListResponse {
+  items: EvalRun[];
+}
+
+export interface EvalResult {
+  id: string;
+  run_id: string;
+  item_id: string;
+  ordinal: number;
+  input: Record<string, unknown>;
+  expected: Record<string, unknown>;
+  labels: Record<string, unknown>;
+  actual: Record<string, unknown>;
+  score: number;
+  passed: boolean;
+  failure_reason: string;
+  citations: Array<Record<string, unknown>>;
+  latency_ms: number;
+  token_count: number;
+  cost_usd: number;
+  manual_verdict: "PASS" | "FAIL" | null;
+  manual_note: string;
+  reviewed_by_id: string | null;
+  reviewed_by_name: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+export interface EvalResultListResponse {
+  items: EvalResult[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface EvalRunDetail {
+  run: EvalRun;
+  results: EvalResultListResponse;
+}
+
+export interface EvalMetricDiff {
+  key: string;
+  label: string;
+  unit: string;
+  baseline: number | null;
+  candidate: number | null;
+  delta: number | null;
+  lower_is_better: boolean;
+  regressed: boolean;
+}
+
+export interface EvalCompareResponse {
+  baseline: EvalRun;
+  candidate: EvalRun;
+  metrics: EvalMetricDiff[];
+  regression_blocked: boolean;
+  threshold: number;
+  blocking_metrics: string[];
+}
+
+export interface DashboardDistributionItem {
+  key: string;
+  label: string;
+  count: number;
+  rate: number;
+}
+
+export interface EvalTrendPoint {
+  run_id: string;
+  dataset_type: string;
+  label: string;
+  sample_size: number;
+  pass_rate: number;
+  key_metric: string;
+  key_metric_label: string;
+  key_metric_value: number;
+  created_at: string;
+}
+
+export interface DashboardResponse {
+  range: string;
+  range_label: string;
+  generated_at: string;
+  cases_total: number;
+  knowledge_resolution_rate: number;
+  ticket_rate: number;
+  approval_requests: number;
+  approval_rejected: number;
+  approval_failed: number;
+  category_distribution: DashboardDistributionItem[];
+  priority_distribution: DashboardDistributionItem[];
+  manual_correction_rate: number;
+  avg_handling_minutes: number;
+  approval_pass_rate: number;
+  avg_approval_wait_minutes: number;
+  approval_expiry_rate: number;
+  duplicate_execution_blocked: number;
+  avg_answer_latency_ms: number;
+  avg_retrieval_latency_ms: number;
+  avg_tool_latency_ms: number;
+  avg_answer_cost_usd: number;
+  eval_trend: EvalTrendPoint[];
+  sample_sizes: Record<string, number>;
+  methodology: Record<string, string>;
+}
+
+export interface AuditEvent {
+  id: string;
+  case_id: string | null;
+  actor_id: string | null;
+  actor_name: string | null;
+  actor_role: string | null;
+  event_type: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  request_id: string;
+  result: string;
+  created_at: string;
+}
+
+export interface AuditEventListResponse {
+  items: AuditEvent[];
+  total: number;
+  offset: number;
+  limit: number;
+  event_types: string[];
+}
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  role_label: string;
+  department: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface RuntimeConfig {
+  retrieval_limit: number;
+  max_context_chunks: number;
+  retrieval_min_score: number;
+  max_steps: number;
+  approval_ttl_seconds: number;
+  evaluation_regression_threshold: number;
+  answer_style: "concise" | "detailed";
+}
+
+export interface PromptVersion {
+  id: string;
+  version: string;
+  name: string;
+  system_prompt: string;
+  is_active: boolean;
+  created_by_id: string | null;
+  created_by_name: string | null;
+  created_at: string;
+}
+
+export interface TaxonomyResponse {
+  categories: Array<{ key: string; label: string }>;
+  priorities: Array<{ key: string; label: string }>;
+  roles: Array<{ key: string; label: string; permissions: string[] }>;
+}
+
+export interface AdminSettings {
+  runtime_config: RuntimeConfig;
+  prompts: PromptVersion[];
+  taxonomy: TaxonomyResponse;
+  users: AdminUser[];
+}
+
+export interface DemoResetResponse {
+  reset_at: string;
+  deleted: Record<string, number>;
+  reseeded_documents: number;
+  audit_event_id: string;
+  message: string;
+}
+
+export interface Feedback {
+  id: string;
+  message_id: string;
+  user_id: string;
+  rating: "helpful" | "unhelpful";
+  reason: string | null;
+  comment: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ToolPolicy {
+  name: string;
+  label: string;
+  tool_type: "READ" | "WRITE";
+  risk_level: RiskLevel;
+  description: string;
+  requires_approval: boolean;
+  timeout_seconds: number;
+  enabled: boolean;
+  mock_mode: "success" | "fail" | "timeout";
+}
+
+export interface ToolPolicyListResponse {
+  items: ToolPolicy[];
+  kill_switch_enabled: boolean;
+  kill_switch_reason: string | null;
+}

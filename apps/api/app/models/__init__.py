@@ -8,6 +8,9 @@ from app.models.action import (
 )
 from app.models.audit import AuditEvent
 from app.models.case import Case
+from app.models.config import PromptVersion
+from app.models.eval import EvalDataset, EvalItem, EvalResult, EvalRun
+from app.models.feedback import MessageFeedback
 from app.models.knowledge import KnowledgeChunk, KnowledgeDocument
 from app.models.message import Citation, Message
 from app.models.session import UserSession
@@ -20,9 +23,15 @@ __all__ = [
     "AuditEvent",
     "Case",
     "Citation",
+    "EvalDataset",
+    "EvalItem",
+    "EvalResult",
+    "EvalRun",
     "KnowledgeChunk",
     "KnowledgeDocument",
+    "MessageFeedback",
     "Message",
+    "PromptVersion",
     "SystemSetting",
     "Ticket",
     "TicketNote",

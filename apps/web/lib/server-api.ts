@@ -5,18 +5,25 @@ import type {
   ApprovalDetail,
   ApprovalListItem,
   ApprovalListResponse,
+  AdminSettings,
+  AuditEventListResponse,
   CaseAction,
   CaseDetail,
   CaseListResponse,
   CheckpointListResponse,
+  DashboardResponse,
+  EvalDatasetListResponse,
+  EvalRunListResponse,
   KnowledgeDocumentListResponse,
   MeResponse,
   MessageListResponse,
+  PromptVersion,
   TicketAssignee,
   TicketAssigneeListResponse,
   TicketDetail,
   TicketDraft,
   TicketListResponse,
+  ToolPolicyListResponse,
   TimelineEvent,
   TimelineResponse,
   WorkflowCheckpoint
@@ -131,4 +138,37 @@ export async function getTicketDraft(caseId: string): Promise<TicketDraft | null
 export async function getTicketAssignees(): Promise<TicketAssignee[]> {
   const data = await serverFetch<TicketAssigneeListResponse>("/api/tickets/assignees");
   return data?.items ?? [];
+}
+
+export async function getEvalDatasets(): Promise<EvalDatasetListResponse> {
+  const data = await serverFetch<EvalDatasetListResponse>("/api/eval/datasets");
+  return data ?? { items: [] };
+}
+
+export async function getEvalRuns(): Promise<EvalRunListResponse> {
+  const data = await serverFetch<EvalRunListResponse>("/api/eval/runs?limit=40");
+  return data ?? { items: [] };
+}
+
+export async function getEvalPrompts(): Promise<PromptVersion[]> {
+  const data = await serverFetch<{ items: PromptVersion[] }>("/api/eval/prompts");
+  return data?.items ?? [];
+}
+
+export async function getDashboard(range: "7d" | "30d" = "30d"): Promise<DashboardResponse | null> {
+  return serverFetch<DashboardResponse>(`/api/dashboard?range=${range}`);
+}
+
+export async function getAdminSettings(): Promise<AdminSettings | null> {
+  return serverFetch<AdminSettings>("/api/admin/settings");
+}
+
+export async function getAdminTools(): Promise<ToolPolicyListResponse> {
+  const data = await serverFetch<ToolPolicyListResponse>("/api/admin/tools");
+  return data ?? { items: [], kill_switch_enabled: false, kill_switch_reason: null };
+}
+
+export async function getAuditEvents(limit = 50): Promise<AuditEventListResponse> {
+  const data = await serverFetch<AuditEventListResponse>(`/api/audit/events?limit=${limit}`);
+  return data ?? { items: [], total: 0, offset: 0, limit, event_types: [] };
 }

@@ -59,7 +59,13 @@ _STEP_HINTS = (
 )
 
 
-def build_answer(query: str, hits: list[RetrievalHit]) -> AnswerPlan:
+def build_answer(
+    query: str,
+    hits: list[RetrievalHit],
+    *,
+    max_citations: int = 4,
+    style: str = 'concise',
+) -> AnswerPlan:
     intent = detect_intent(query)
     refusal = sensitive_refusal(query)
     if refusal is not None:
@@ -99,7 +105,7 @@ def build_answer(query: str, hits: list[RetrievalHit]) -> AnswerPlan:
                 index=len(citations) + 1,
             )
         )
-        if len(citations) >= 4:
+        if len(citations) >= max(1, max_citations):
             break
 
     primary = citations[0]
@@ -114,9 +120,9 @@ def build_answer(query: str, hits: list[RetrievalHit]) -> AnswerPlan:
             normalized = step.rstrip("。；;")
             if all(normalized != existing for existing, _ in steps):
                 steps.append((normalized, citation.index))
-            if len(steps) >= 4:
+            if len(steps) >= (4 if style == 'concise' else 6):
                 break
-        if len(steps) >= 4:
+        if len(steps) >= (4 if style == 'concise' else 6):
             break
     if not steps:
         steps.append((f"按《{primary.document.title}》中的说明逐项排查", 1))
@@ -125,11 +131,17 @@ def build_answer(query: str, hits: list[RetrievalHit]) -> AnswerPlan:
         f"{index}. {step}。[{citation_index}]"
         for index, (step, citation_index) in enumerate(steps, start=1)
     )
+    evidence_summary = ''
+    if style == 'detailed':
+        evidence_summary = '\n\n依据摘要\n' + '\n'.join(
+            f'- {citation.quote} [{citation.index}]' for citation in citations[:3]
+        )
     content = (
         "结论\n"
         f"{conclusion}\n\n"
         "处理步骤\n"
-        f"{step_text}\n\n"
+        f"{step_text}"
+        f"{evidence_summary}\n\n"
         "下一步\n"
         "完成上述步骤后重新验证。如果问题仍然存在，请补充仍出现的报错、设备或时间信息，"
         "我会继续核对知识依据；也可以创建工单转人工处理。"

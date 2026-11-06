@@ -8,7 +8,6 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.errors import AppError
 from app.core.rbac import has_permission
 from app.core.security import as_utc, new_id, utcnow
@@ -25,6 +24,7 @@ from app.schemas.action import (
     CaseActionOut,
     ToolExecutionOut,
 )
+from app.services.admin_settings import get_runtime_config
 from app.services.audit import record_event
 from app.services.case_service import (
     CASE_STATUS_LABELS,
@@ -183,8 +183,9 @@ async def create_action_proposal(
     spec = get_tool_spec(intent.tool_name)
     args = validate_tool_args(intent.tool_name, intent.args)
     args_hash = canonical_args_hash(intent.tool_name, args)
+    runtime = await get_runtime_config(db)
     now = utcnow()
-    expires_at = now + timedelta(seconds=settings.approval_ttl_seconds)
+    expires_at = now + timedelta(seconds=runtime.approval_ttl_seconds)
     action = ActionRequest(
         id=new_id("act"),
         case_id=case.id,
@@ -785,6 +786,20 @@ async def approve_action(
     if approval.status == "APPROVED":
         execution = await _get_execution_for_action(db, action.id)
         if execution is not None:
+            await record_event(
+                db,
+                event_type="tool.duplicate_blocked",
+                actor_id=user.id,
+                actor_role=user.role,
+                request_id=request_id,
+                case_id=case.id,
+                payload={
+                    "approval_id": approval.id,
+                    "action_id": action.id,
+                    "execution_id": execution.id,
+                    "reason": "repeat_approval_returned_existing_execution",
+                },
+            )
             return _outcome(
                 approval=approval,
                 action=action,
@@ -834,6 +849,20 @@ async def approve_action(
         await db.refresh(action)
         execution = await _get_execution_for_action(db, action.id)
         if approval.status == "APPROVED" and execution is not None:
+            await record_event(
+                db,
+                event_type="tool.duplicate_blocked",
+                actor_id=user.id,
+                actor_role=user.role,
+                request_id=request_id,
+                case_id=case.id,
+                payload={
+                    "approval_id": approval.id,
+                    "action_id": action.id,
+                    "execution_id": execution.id,
+                    "reason": "concurrent_repeat_approval",
+                },
+            )
             return _outcome(
                 approval=approval,
                 action=action,

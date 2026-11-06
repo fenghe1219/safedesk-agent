@@ -111,6 +111,7 @@ async def retrieve_chunks(
     query: str,
     requester: User,
     limit: int = 5,
+    min_score: float = MIN_RELEVANCE,
 ) -> list[RetrievalHit]:
     result = await db.execute(
         select(KnowledgeChunk, KnowledgeDocument)
@@ -141,7 +142,7 @@ async def retrieve_chunks(
         lexical = matched / total if total else 0.0
         semantic = max(0.0, cosine(query_vector, chunk.embedding or []))
         score = lexical * 0.72 + semantic * 0.28
-        if score >= MIN_RELEVANCE:
+        if score >= min_score:
             hits.append(
                 RetrievalHit(
                     document=document,

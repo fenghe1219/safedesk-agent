@@ -72,6 +72,13 @@ TEST_USERS = [
         "role": Role.ADMIN.value,
         "department": "IT 管理",
     },
+    {
+        "id": "user_auditor",
+        "name": "审计员",
+        "email": "audit@example.test",
+        "role": Role.AUDITOR.value,
+        "department": "内审",
+    },
 ]
 
 TEST_DOCUMENTS = DEMO_DOCUMENTS[:2]

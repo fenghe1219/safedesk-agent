@@ -8,6 +8,7 @@ from app.core.security import hash_password, new_id
 from app.db.session import SessionLocal
 from app.models.knowledge import KnowledgeDocument
 from app.models.user import User
+from app.services.eval_seed import ensure_eval_metadata
 from app.services.knowledge_service import create_document
 
 logger = logging.getLogger(__name__)
@@ -161,6 +162,162 @@ DEMO_DOCUMENTS: list[dict[str, str]] = [
 访客到达前，由接待人完成访客登记并确认访问区域。访客应在前台领取临时访客证，由员工全程陪同进入办公区。
 """,
     },
+    {
+        "title": "软件安装与许可申请",
+        "version": "v2",
+        "content": """# 软件安装与许可申请
+
+本文适用于公司办公软件、设计工具和研发工具的安装与许可申请。
+
+## 安装软件
+
+1. 打开软件中心，搜索软件名称并确认版本。
+2. 点击安装，等待下载和校验完成。
+3. 如果软件需要许可，提交许可申请并填写使用用途和期限。
+4. 安装完成后重新登录，确认软件可以正常打开。
+
+## 许可不足与更新
+
+许可不足时不要使用个人账号购买或共享许可。应在软件中心提交额外许可申请，由部门负责人和 IT 管理审批。
+
+客户端更新后崩溃时，先退出全部实例，清理缓存并重新登录。仍无法打开时，记录版本号、报错和发生时间，提交工单。
+
+\f
+
+## 卸载后无法重新安装
+
+卸载旧版软件时选择保留用户配置，再从软件中心重新安装。如果提示残留文件或权限不足，不要手动修改系统目录，提交工单由桌面支持清理安装记录。
+""",
+    },
+    {
+        "title": "邮箱无法收发与容量清理",
+        "version": "v2",
+        "content": """# 邮箱无法收发与容量清理
+
+## 无法接收邮件
+
+1. 检查邮件客户端是否处于离线状态，重新登录公司邮箱。
+2. 确认邮箱容量未满，并检查垃圾邮件和隔离区。
+3. 在网页版邮箱测试是否能够收到邮件。
+4. 如果网页版正常而客户端异常，退出客户端后重建邮箱配置。
+
+## 邮箱已满
+
+邮箱达到容量上限后无法发送或接收新邮件。清理大附件和已删除邮件，并清空“已删除邮件”文件夹。需要长期保留的邮件应转移到团队共享空间。
+
+## 退信 550 5.7.1
+
+退信 550 5.7.1 通常表示收件方策略拒绝、地址错误或发件域名验证失败。先核对收件地址，再将完整退信头和发生时间提交给邮箱管理员。
+""",
+    },
+    {
+        "title": "企业微信与视频会议排障",
+        "version": "v1",
+        "content": """# 企业微信与视频会议排障
+
+## 企业微信无法登录
+
+1. 确认公司账号可以正常登录其他内部系统。
+2. 退出企业微信并重新登录，检查是否需要更新客户端。
+3. 如果提示账号未授权，记录截图和提示时间，提交工单核验账号状态。
+
+## 视频会议无声音或无法投屏
+
+1. 检查会议设备和电脑音量是否静音。
+2. 在系统设置中选择正确的麦克风、扬声器和摄像头。
+3. 投屏前确认会议室 HDMI 或无线投屏设备已开启。
+4. 重新加入会议并测试扬声器和麦克风。
+
+## 日历邀请不显示
+
+确认邀请发送到公司邮箱，检查日历是否隐藏了共享日历。仍不显示时，提供会议主题、邀请人和时间，由协作工具管理员排查。
+""",
+    },
+    {
+        "title": "笔记本电源与电池安全",
+        "version": "v1",
+        "content": """# 笔记本电源与电池安全
+
+## 电池鼓包
+
+发现笔记本电池鼓包、外壳变形或异常发热时，立即停止使用并断开电源，不要按压电池或继续充电。将设备放置在通风安全位置，联系桌面支持安排更换，不要自行拆机。
+
+## 无法开机
+
+1. 确认电源适配器和插座正常，检查指示灯。
+2. 长按电源键 10 秒后重新开机。
+3. 连接电源后再尝试开机，观察是否有充电指示。
+4. 如果仍无反应，记录设备编号、最近变更和指示灯状态，创建工单。
+
+## 电源适配器异常
+
+适配器过热、线缆破损或接口松动时停止使用。不要使用非公司配发的适配器，提交工单更换。
+""",
+    },
+    {
+        "title": "显示器与外设连接",
+        "version": "v1",
+        "content": """# 显示器与外设连接
+
+## 显示器不亮
+
+1. 检查显示器电源指示灯和电源线。
+2. 重新插拔视频线，确认切换到正确输入源。
+3. 使用另一根视频线或接口测试。
+4. 在系统中按 Win+P 选择正确的显示模式。
+
+## 外接键盘和鼠标失灵
+
+1. 重新插拔 USB 接收器或线缆，换一个 USB 端口。
+2. 无线设备更换电池，并确认接收器与设备配对。
+3. 重启电脑后检查设备管理器是否有异常设备。
+4. 仍无法使用时，记录设备型号和端口，提交工单更换。
+
+显示器闪烁或分辨率异常时，先更新显卡驱动；不要使用来源不明的驱动包。
+""",
+    },
+    {
+        "title": "文件共享与协作空间",
+        "version": "v1",
+        "content": """# 文件共享与协作空间
+
+## 无法访问共享空间
+
+1. 确认已登录公司账号，并连接到公司网络或 VPN。
+2. 检查共享链接是否已过期或被管理员移除。
+3. 在网页版协作空间验证是否能够访问。
+4. 如果提示无权限，提交权限申请，不要反复尝试其他账号。
+
+## 申请共享权限
+
+权限申请需说明共享空间名称、需要的角色、使用范围和保留期限。由空间负责人审批后，管理员按最小权限原则开通。敏感文件和对外共享链接需要额外说明用途。
+
+## 文件冲突
+
+多人同时编辑时，先停止编辑并刷新页面。不要在冲突状态下覆盖他人版本，联系空间负责人合并内容。
+""",
+    },
+    {
+        "title": "安全事件上报与终端隔离",
+        "version": "v1",
+        "content": """# 安全事件上报与终端隔离
+
+## 怀疑设备中毒或被入侵
+
+1. 立即断开网络连接，但不要关机或删除文件。
+2. 停止输入账号密码，不要插入新的移动存储设备。
+3. 记录异常窗口、进程名称、发生时间和最近打开的文件。
+4. 通过安全事件通道联系 IT 安全，等待进一步指示。
+
+## 钓鱼邮件
+
+不要点击链接、下载附件或回复邮件。使用客户端的“报告钓鱼邮件”功能，并记录发件人、主题和收到时间。
+
+## 终端隔离
+
+安全人员确认风险后可以对终端执行网络隔离。隔离期间不要尝试绕过策略或共享账号。完成取证和清理后，由安全人员解除隔离并通知用户。
+""",
+    },
 ]
 
 
@@ -190,32 +347,38 @@ async def seed_demo_users() -> int:
     return created
 
 
-async def seed_demo_knowledge() -> int:
+async def seed_demo_knowledge_into(db, owner_id: str | None) -> int:
+    if owner_id is None:
+        return 0
     created = 0
+    for item in DEMO_DOCUMENTS:
+        existing = await db.execute(
+            select(KnowledgeDocument).where(
+                KnowledgeDocument.title == item["title"],
+                KnowledgeDocument.version == item["version"],
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            continue
+        await create_document(
+            db,
+            title=item["title"],
+            version=item["version"],
+            owner_id=owner_id,
+            raw_content=item["content"],
+            source_type="markdown",
+            acl={"departments": []},
+        )
+        created += 1
+    await db.flush()
+    return created
+
+
+async def seed_demo_knowledge() -> int:
     async with SessionLocal() as db:
         result = await db.execute(select(User).where(User.role == Role.ADMIN.value).limit(1))
         owner = result.scalar_one_or_none()
-        if owner is None:
-            return 0
-        for item in DEMO_DOCUMENTS:
-            existing = await db.execute(
-                select(KnowledgeDocument).where(
-                    KnowledgeDocument.title == item["title"],
-                    KnowledgeDocument.version == item["version"],
-                )
-            )
-            if existing.scalar_one_or_none() is not None:
-                continue
-            await create_document(
-                db,
-                title=item["title"],
-                version=item["version"],
-                owner_id=owner.id,
-                raw_content=item["content"],
-                source_type="markdown",
-                acl={"departments": []},
-            )
-            created += 1
+        created = await seed_demo_knowledge_into(db, owner.id if owner else None)
         await db.commit()
     if created:
         logger.info("Seeded %s demo knowledge documents", created)
@@ -225,6 +388,11 @@ async def seed_demo_knowledge() -> int:
 async def seed_demo_data() -> tuple[int, int]:
     users = await seed_demo_users()
     documents = await seed_demo_knowledge()
+    async with SessionLocal() as db:
+        owner_result = await db.execute(select(User).where(User.role == Role.ADMIN.value).limit(1))
+        owner = owner_result.scalar_one_or_none()
+        await ensure_eval_metadata(db, owner_id=owner.id if owner else None)
+        await db.commit()
     return users, documents
 
 

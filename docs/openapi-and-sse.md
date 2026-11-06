@@ -1,6 +1,6 @@
 # SafeDesk API 与 SSE 契约 v0.1
 
-> 状态：M3 已实现（审批、受控执行、检查点与工具治理 API）。评估、看板、用户/Prompt 配置、Case 更新订阅和管理配置页仍为 M4 设计。
+> 状态：M0–M4 已实现（审批、受控执行、评估、审计、看板、反馈与管理配置）。Case 更新订阅 SSE 仍为后续设计。
 > 目标：覆盖 MVP 页面和状态变化，不提前设计生产级集成  
 > 关联文档：`docs/data-model-and-state-machines.md`、`docs/ia-and-flows.md`
 
@@ -84,9 +84,9 @@
 | POST | `/api/cases/{id}/reopen` | 有权限 | 重新打开 Case |
 | GET | `/api/cases/{id}/timeline` | 有权限 | 安全投影后的时间线 |
 | GET | `/api/cases/{id}/events` | 有权限 | 跨角色 Case 更新 SSE |
-| POST | `/api/cases/{id}/messages/{message_id}/feedback` | 有权限 | 回答反馈 |
+| POST | `/api/messages/{message_id}/feedback` | 有权限 | 回答反馈，幂等更新本人反馈 |
 
-M3 已实现 Case 列表、创建、详情、消息、时间线、Action 与检查点接口；`stop/retry/close/reopen/events/feedback` 仍为 M4 设计。
+已实现 Case 列表、创建、详情、消息、时间线、Action、检查点与消息反馈；`stop/retry/close/reopen/events` 仍为后续设计。
 
 ### 2.3 知识库
 
@@ -141,30 +141,34 @@ M3 已实现 Case 列表、创建、详情、消息、时间线、Action 与检�
 
 | 方法 | 路径 | 角色 | 说明 |
 | --- | --- | --- | --- |
-| GET | `/api/audit` | Auditor/Admin/有限范围 | 审计查询 |
-| GET | `/api/audit/{id}` | Auditor/Admin | 单条审计详情 |
-| GET | `/api/evaluations/datasets` | Evaluator/Admin | 数据集列表 |
-| POST | `/api/evaluations/datasets/import` | Evaluator/Admin | 导入 JSONL/CSV |
-| GET | `/api/evaluations/datasets/{id}` | Evaluator/Admin | 数据集与样本 |
-| POST | `/api/evaluations/runs` | Evaluator/Admin | 启动评估 |
-| GET | `/api/evaluations/runs` | Evaluator/Admin | 运行列表 |
-| GET | `/api/evaluations/runs/{id}` | Evaluator/Admin | 运行详情与指标 |
-| GET | `/api/evaluations/runs/{id}/results` | Evaluator/Admin | 样本结果分页 |
-| POST | `/api/evaluations/results/{id}/review` | Evaluator/Admin | 人工通过/失败与备注 |
-| GET | `/api/dashboard/summary` | 授权角色 | 看板指标，`range=7d / 30d` |
-| GET | `/api/admin/users` | Admin | 用户与角色 |
-| PATCH | `/api/admin/users/{id}` | Admin | 调整角色/部门 |
+| GET | `/api/audit/events` | Auditor/Admin（`audit:view`） | 审计查询，支持过滤、分页与脱敏 payload |
+| GET | `/api/eval/datasets` | Evaluator/Admin（`eval:manage`） | 数据集列表 |
+| GET | `/api/eval/prompts` | Evaluator/Admin | 可用 Prompt 版本列表 |
+| POST | `/api/eval/datasets/import` | Evaluator/Admin | 导入 JSONL/CSV，最多 500 条 |
+| GET | `/api/eval/datasets/{dataset_id}` | Evaluator/Admin | 数据集与样本 |
+| POST | `/api/eval/runs` | Evaluator/Admin | 启动并同步完成一次评估 |
+| GET | `/api/eval/runs` | Evaluator/Admin | 运行列表，可按数据集过滤 |
+| GET | `/api/eval/compare` | Evaluator/Admin | 对比两次 Run 的指标与回归门禁 |
+| GET | `/api/eval/runs/{run_id}` | Evaluator/Admin | 运行详情、指标与样本结果 |
+| GET | `/api/eval/runs/{run_id}/results` | Evaluator/Admin | 样本结果分页与人工复核筛选 |
+| PATCH | `/api/eval/runs/{run_id}/results/{result_id}` | Evaluator/Admin | 人工 `PASS`/`FAIL` 与备注 |
+| GET | `/api/dashboard?range=7d|30d` | Support/Approver/Admin/Auditor（`dashboard:view`） | 运营指标、样本量与口径 |
+| GET | `/api/admin/settings` | Admin（`settings:manage`） | 配置汇总：运行参数、Prompt、分类与用户 |
+| GET | `/api/admin/users` | Admin | 用户、角色、部门与启停状态 |
+| PATCH | `/api/admin/users/{user_id}` | Admin | 调整角色/部门/启停，禁止自我降级和移除最后管理员 |
+| GET | `/api/admin/runtime-config` | Admin | 读取运行时参数 |
+| PUT | `/api/admin/runtime-config` | Admin | 更新运行时参数并写 `config.changed` |
+| GET | `/api/admin/prompts` | Admin | Prompt 版本与激活状态 |
+| POST | `/api/admin/prompts` | Admin | 新建 Prompt 版本 |
+| POST | `/api/admin/prompts/{prompt_id}/activate` | Admin | 激活指定 Prompt 版本 |
+| GET | `/api/admin/taxonomy` | Admin | 分类、优先级与角色权限矩阵 |
 | GET | `/api/admin/tools` | Admin | 工具白名单与策略 |
-| PATCH | `/api/admin/tools/{name}` | Admin | 启停工具、设置 Mock 模式 |
+| PATCH | `/api/admin/tools/{tool_name}` | Admin | 启停工具、设置 Mock 模式 |
 | GET | `/api/admin/kill-switch` | Admin | 读取全局写操作暂停状态 |
 | PUT | `/api/admin/kill-switch` | Admin | 开启/关闭 Kill Switch 并记录原因 |
-| GET | `/api/admin/prompts` | Admin | Prompt 版本 |
-| POST | `/api/admin/prompts` | Admin | 新建版本 |
-| GET | `/api/admin/settings` | Admin | 当前系统配置 |
-| PATCH | `/api/admin/settings/{key}` | Admin | 配置变更 |
-| POST | `/api/admin/reset-demo` | Admin | 一键重置演示数据 |
+| POST | `/api/admin/reset-demo` | Admin | 输入 `RESET-DEMO` 后重置演示数据并保留审计 |
 
-`/api/admin/tools` 与 `/api/admin/kill-switch` 已实现；其余 Admin、评估、看板和审计端点仍为 M4 设计。
+上述 M4 端点均已实现。评估路径统一使用 `/api/eval/*`，不是 `/api/evaluations/*`；反馈路径是 `/api/messages/{message_id}/feedback`，不嵌套在 Case 路径下。
 
 ## 3. 关键请求与响应
 
@@ -422,17 +426,43 @@ POST /api/tickets/tkt_01J.../transition
 ### 3.8 反馈
 
 ```json
-POST /api/cases/case_01J.../messages/msg_01J.../feedback
+POST /api/messages/msg_01J.../feedback
 {
-  "rating": "not_helpful",
+  "rating": "unhelpful",
   "reason": "missing_steps",
   "comment": "第三步没有说明证书在哪里下载"
 }
 ```
 
-- `rating`: `helpful | not_helpful`。
+- `rating`: `helpful | unhelpful`。
 - 原因枚举：`inaccurate | no_citation | outdated | missing_steps | other`。
-- 反馈只形成候选样本（P1），不直接修改知识库或模型。
+- 同一用户重复提交时更新原记录；反馈只形成候选样本，不直接修改知识库或模型。
+- 提交成功写入 `feedback.submitted` 审计，payload 标记 `candidate_only=true`。
+
+### 3.9 M4 评估、看板、审计与配置
+
+启动评估：
+
+```json
+POST /api/eval/runs
+{
+  "dataset_id": "evalds_...",
+  "label": "security baseline",
+  "prompt_version": "m4-safe-v2-candidate",
+  "model_settings": {"provider": "local-rules", "model": "extractive-rag-v1"},
+  "retrieval_config": {"limit": 3, "min_score": 0.0},
+  "run_config": {"mode": "single_config", "suite": "m4"}
+}
+```
+
+- 响应包含 `status=COMPLETED`、`metrics`、`sample_count`、配置快照和 `finished_at`；当前评估同步执行，不创建后台任务。
+- `metrics` 包含总体与分项样本量、延迟和成本估算；知识、分诊、安全分别返回对应指标。
+- 对比：`GET /api/eval/compare?baseline_run_id=...&candidate_run_id=...`，响应包含逐指标 `delta`、`regressed`、`regression_blocked`、`threshold` 和 `blocking_metrics`。
+- 看板：`GET /api/dashboard?range=7d` 或 `range=30d`，响应包含指标、`sample_sizes`、`methodology` 和评估趋势。
+- 审计：`GET /api/audit/events?event_type=config.changed&q=...&offset=0&limit=50`；支持 `case_id`、`actor_id`、`result`、`start_at`、`end_at`。
+- 运行参数：`PUT /api/admin/runtime-config`，字段包括 `retrieval_limit`、`max_context_chunks`、`retrieval_min_score`、`max_steps`、`approval_ttl_seconds`、`evaluation_regression_threshold` 和 `answer_style`。
+- 用户、Prompt、工具、Kill Switch 和演示重置均走 `/api/admin/*`；所有写请求要求 CSRF，并写入 `config.changed` 或 `demo.reset` 审计。
+- Prompt 版本目前是可管理的版本记录；本地规则回答链路尚未把 Prompt 文本作为真实模型参数。
 
 ## 4. 消息流 SSE
 
@@ -551,9 +581,9 @@ data: {"case_status":"AWAITING_APPROVAL","message_id":"msg_01J...","request_id":
 
 Case 工作台收到事件后直接替换动作卡；`done.action_id` 用于确认动作已持久化。后续聊天不会把仍在等待审批的 Case 覆盖成 `ANSWERED`。
 
-## 5. Case 更新订阅 SSE（M4 设计）
+## 5. Case 更新订阅 SSE（后续设计，未实现）
 
-`GET /api/cases/{id}/events` 计划用于跨角色实时更新，例如审批人在另一个浏览器批准后，员工页面自动从“等待审批”切到“执行中”。该端点尚未在 M3 实现，当前页面通过刷新和动作详情接口获取审批后状态。
+`GET /api/cases/{id}/events` 计划用于跨角色实时更新，例如审批人在另一个浏览器批准后，员工页面自动从“等待审批”切到“执行中”。M4 仍通过刷新和动作详情接口获取审批后状态。
 
 ### 5.1 事件类型
 
@@ -598,10 +628,11 @@ Case 工作台收到事件后直接替换动作卡；`done.action_id` 用于确�
 | --- | --- |
 | 是否对外提供工具执行接口 | 不提供；只允许工作流内部 Tool Gateway |
 | Case 列表是否必须 | 必须；否则无法实现“最近会话”和我的 Case |
-| Case 事件订阅是否 P0 | 建议 P0；否则审批后的跨角色状态只能轮询 |
+| Case 事件订阅是否 P0 | 后续增强；M4 未实现，当前通过刷新和详情接口获取状态 |
 | 停止生成如何持久化 | 消息标记 `STOPPED`，保留部分内容，可重试 |
 | 审批是否允许带参数修改 | P1；P0 只允许按原参数批准/拒绝 |
 | 审计分页 | cursor；按时间和事件 ID 稳定排序 |
 | SSE 是否发送模型内部推理 | 不发送；只发送安全步骤标签 |
+| Prompt 文本是否驱动模型 | M4 尚未驱动；当前仅记录版本和激活状态 |
 
 实现阶段应基于本文件生成实际 OpenAPI 文档，并用 FastAPI 类型和前端生成类型双向校验，避免文档与代码漂移。

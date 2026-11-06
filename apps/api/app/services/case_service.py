@@ -71,6 +71,7 @@ EVENT_SUMMARIES: dict[str, str] = {
     "tool.executed": "执行工具",
     "tool.executing": "开始执行工具",
     "tool.failed": "工具执行失败",
+    "tool.duplicate_blocked": "重复执行已拦截",
     "tool.read_executed": "执行只读诊断工具",
     "tool.read_failed": "只读诊断工具失败",
     "action.verified": "验证执行结果",
@@ -84,6 +85,11 @@ EVENT_SUMMARIES: dict[str, str] = {
     "knowledge.document_reindexed": "重建知识索引",
     "knowledge.document_updated": "更新知识文档",
     "knowledge.document_deleted": "删除知识文档",
+    "eval.run_completed": "完成评估运行",
+    "eval.result_reviewed": "人工复核评估样本",
+    "eval.dataset_imported": "导入评估数据集",
+    "demo.reset": "重置演示数据",
+    "feedback.submitted": "提交回答反馈",
 }
 
 

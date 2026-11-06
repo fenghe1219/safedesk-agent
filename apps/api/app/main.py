@@ -8,10 +8,15 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes import (
     admin,
+    admin_settings,
     approvals,
+    audit,
     auth,
     cases,
+    dashboard,
     demo,
+    evaluations,
+    feedback,
     health,
     knowledge,
     me,
@@ -83,6 +88,11 @@ def create_app() -> FastAPI:
     app.include_router(approvals.router, prefix=settings.api_prefix)
     app.include_router(approvals.case_router, prefix=settings.api_prefix)
     app.include_router(admin.router, prefix=settings.api_prefix)
+    app.include_router(evaluations.router, prefix=settings.api_prefix)
+    app.include_router(dashboard.router, prefix=settings.api_prefix)
+    app.include_router(audit.router, prefix=settings.api_prefix)
+    app.include_router(admin_settings.router, prefix=settings.api_prefix)
+    app.include_router(feedback.router, prefix=settings.api_prefix)
 
     @app.get(settings.api_prefix, include_in_schema=False)
     async def api_root() -> JSONResponse:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,7 @@ from app.services.action_service import (
     to_action_out,
     to_approval_out,
 )
+from app.services.admin_settings import get_runtime_config
 from app.services.answer import (
     MODEL_VERSION,
     PROMPT_VERSION,
@@ -152,8 +154,24 @@ async def process_message(
         payload={"message_id": user_message.id, "length": len(normalized)},
     )
 
-    hits = await retrieve_chunks(db, normalized, user, limit=5)
-    plan = build_answer(normalized, hits)
+    runtime = await get_runtime_config(db)
+    retrieval_started = time.perf_counter()
+    hits = await retrieve_chunks(
+        db,
+        normalized,
+        user,
+        limit=runtime.retrieval_limit,
+        min_score=runtime.retrieval_min_score,
+    )
+    retrieval_latency_ms = max(1, round((time.perf_counter() - retrieval_started) * 1000))
+    answer_started = time.perf_counter()
+    plan = build_answer(
+        normalized,
+        hits,
+        max_citations=runtime.max_context_chunks,
+        style=runtime.answer_style,
+    )
+    answer_latency_ms = max(1, round((time.perf_counter() - answer_started) * 1000))
     action = None
     approval = None
     diagnostic = None
@@ -292,8 +310,15 @@ async def process_message(
             "query": normalized,
             "evidence_count": len(hits),
             "chunk_ids": [hit.chunk.id for hit in hits],
+            "latency_ms": retrieval_latency_ms,
+            "retrieval_limit": runtime.retrieval_limit,
+            "retrieval_min_score": runtime.retrieval_min_score,
+            "max_context_chunks": runtime.max_context_chunks,
+            "estimated": True,
         },
     )
+    answer_tokens = max(1, len(effective_plan.content) // 2)
+    answer_cost_usd = round(answer_tokens * 0.0000006, 8)
     await record_event(
         db,
         event_type="answer.refused" if effective_plan.refused else "answer.generated",
@@ -305,6 +330,10 @@ async def process_message(
             "message_id": assistant_message.id,
             "intent": effective_plan.intent,
             "citation_ids": [row.id for row in citation_rows],
+            "latency_ms": answer_latency_ms,
+            "token_count": answer_tokens,
+            "cost_usd": answer_cost_usd,
+            "estimated": True,
         },
     )
 

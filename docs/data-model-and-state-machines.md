@@ -1,6 +1,6 @@
 # SafeDesk 数据模型与状态机 v0.1
 
-> 状态：M0–M3 已实现；本文保留目标模型与后续扩展说明，实际字段以 Alembic 迁移和 Pydantic Schema 为准
+> 状态：M0–M4 已实现；本文保留目标模型与后续扩展说明，实际字段以 Alembic 迁移和 Pydantic Schema 为准
 > 目标：让 Case、Ticket、Action、Approval 和审计共享同一事实源  
 > 关联文档：`docs/ia-and-flows.md`、`docs/openapi-and-sse.md`
 
@@ -30,6 +30,9 @@
 | AuditEvent | 只追加审计事件 | Case 时间线的安全投影来源 |
 | EvalDataset / EvalItem | 固定评估数据 | 版本化；金标准不自动变化 |
 | EvalRun / EvalResult | 一次评估及样本结果 | 保存 Prompt/模型/检索配置 |
+| PromptVersion | Prompt 版本记录与激活状态 | `version` 唯一；应用层最多一个激活版本 |
+| MessageFeedback | 回答反馈候选样本 | 同一用户对同一消息一条；不直接改知识 |
+| ToolPolicy / SystemSetting | 工具策略与运行参数 | 服务端读取；变更写入配置审计 |
 
 ## 3. 关系图
 
@@ -51,6 +54,9 @@ erDiagram
   EvalDataset ||--o{ EvalRun : runs
   EvalRun ||--o{ EvalResult : produces
   EvalItem ||--o{ EvalResult : evaluated_as
+  User ||--o{ PromptVersion : creates
+  Message ||--o| MessageFeedback : receives
+  User ||--o{ MessageFeedback : submits
 ```
 
 ## 4. 关键字段
@@ -180,6 +186,58 @@ request_id, result, prev_hash, created_at
 - `payload` 中的密码、Token、密钥、手机号等必须脱敏。
 - P0 通过数据库权限/触发器禁止 UPDATE/DELETE；P1 增加哈希链。
 - Case 时间线是 AuditEvent 的安全投影，不另建第二套业务事件源。
+
+### 4.12 PromptVersion
+
+```text
+id, version, name, system_prompt, is_active, created_by_id, created_at
+```
+
+- `version` 唯一；激活新版本时由应用层关闭其他版本的 `is_active`。
+- 创建和激活均写入 `config.changed` 审计，包含版本、名称和激活状态。
+- 当前回答链路仍是本地规则基线；Prompt 文本作为版本记录和管理配置保存，尚未作为真实外部模型调用参数。
+
+### 4.13 MessageFeedback
+
+```text
+id, message_id, user_id, rating, reason, comment, created_at, updated_at
+```
+
+- `rating`: `helpful | unhelpful`；`reason`: `inaccurate | no_citation | outdated | missing_steps | other | null`。
+- `UNIQUE(message_id, user_id)`：同一用户重复提交时更新原记录，不产生多条反馈。
+- 反馈只形成候选样本并写 `feedback.submitted` 审计，不自动修改文档、索引或模型。
+
+### 4.14 EvalDataset、EvalItem、EvalRun 与 EvalResult
+
+```text
+EvalDataset: id, name, dataset_type, version, description, item_count,
+             is_fixed, created_by_id, created_at
+EvalItem:    id, dataset_id, ordinal, input, expected, labels, source, created_at
+EvalRun:     id, dataset_id, label, prompt_version, model_config,
+             retrieval_config, run_config, status, metrics, sample_count,
+             created_by_id, created_at, finished_at
+EvalResult:  id, run_id, item_id, actual, score, passed, failure_reason,
+             citations, latency_ms, token_count, cost_usd, manual_verdict,
+             manual_note, reviewed_by_id, reviewed_at, created_at
+```
+
+- `dataset_type`: `knowledge | triage | security`；固定集为 40/80/15 条，导入集最多 500 条。
+- `EvalItem` 使用 `UNIQUE(dataset_id, ordinal)`；`EvalResult` 使用 `UNIQUE(run_id, item_id)`。
+- Run 同时保存 Prompt、模型、检索和运行配置，便于复现实验；指标包含总体与分项样本量。
+- 人工复核只更新 `manual_verdict/manual_note/reviewer/reviewed_at`，不覆盖自动评分和原始实际输出。
+- 当前指标来自本地规则基线与 Mock 链路，延迟、Token 和成本为本地估算，不作为生产模型效果承诺。
+
+### 4.15 ToolPolicy 与 SystemSetting
+
+```text
+ToolPolicy:    name, enabled, mock_mode, updated_at
+SystemSetting: key, value, updated_at
+```
+
+- `ToolPolicy` 只管理代码注册表中已存在的工具，不允许界面新增可执行连接器；`mock_mode`: `success | fail | timeout`。
+- `runtime_config` 保存检索 Top-K、最低相关度、最大上下文片段、最大步骤、审批 TTL、回归阈值和回答风格。
+- 运行参数在服务端被实际读取：会话检索、回答组装、审批创建、评估默认配置和 Run 比较门禁均使用对应值。
+- `kill_switch` 保存全局写操作暂停状态与原因；工具或运行配置变更写入 `config.changed` 审计。
 
 ## 5. Case 状态机
 
@@ -399,6 +457,7 @@ approval.requested, approval.approved, approval.rejected, approval.expired
 tool.executed, tool.failed, tool.unknown
 action.verified, action.verification_failed
 feedback.submitted
+eval.dataset_imported, eval.run_completed, eval.result_reviewed
 config.changed, demo.reset
 ```
 
@@ -417,6 +476,8 @@ config.changed, demo.reset
 - 审批人只能看到与其审批范围匹配的 Action；不能审批自己发起的 Action。
 - 审计员只读；不能修改任何业务表。
 - 管理员可以管理配置和知识库，但不自动获得审批权。
+- 评估员只能管理评估并只读知识，不进入看板、审计或系统配置。
+- 审计员可读审计和看板，但不能运行评估或修改配置。
 - 所有列表查询带服务端 scope 过滤，不能信任客户端传入的 `user_id`、`department` 或 `case_id`。
 
 ## 12. 索引与约束建议
@@ -436,6 +497,14 @@ INDEX audit_events.case_id, audit_events.created_at
 INDEX audit_events.event_type, audit_events.created_at
 INDEX chunks.doc_id
 INDEX chunks.embedding USING ivfflat/hnsw  -- 按 pgvector 版本选择
+UNIQUE prompt_versions.version
+UNIQUE eval_datasets.name
+UNIQUE eval_items.dataset_id, eval_items.ordinal
+UNIQUE eval_results.run_id, eval_results.item_id
+UNIQUE message_feedback.message_id, message_feedback.user_id
+INDEX eval_runs.dataset_id, eval_runs.status, eval_runs.created_at
+INDEX eval_results.run_id, eval_results.item_id
+INDEX message_feedback.message_id, message_feedback.user_id
 ```
 
 - JSONB 只用于可扩展字段，不把状态、权限和关键关联放进不可索引的 JSON。
@@ -447,7 +516,7 @@ INDEX chunks.embedding USING ivfflat/hnsw  -- 按 pgvector 版本选择
 - Case、Ticket、AuditEvent 演示环境保留 180 天；生产保留期可配置。
 - 文档删除后索引和缓存失效；Citation 快照保留最小必要信息。
 - 用户删除采用停用而不是物理删除，保留审计关联。
-- 一键重置演示数据只允许 Admin 操作，写入 `demo.reset` 审计。
+- 一键重置演示数据只允许 Admin 操作，清理 Case、工单、审批、执行、评估 Run、反馈、Prompt/配置覆盖和知识文档，恢复固定演示数据；审计历史保留并写入 `demo.reset` 审计。
 
 ## 14. 待确认的实现细节
 

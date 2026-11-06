@@ -22,6 +22,7 @@ import type {
 import { cn, formatDateTime } from "@/lib/utils";
 import { ActionCard } from "./action-card";
 import { Icon } from "./icons";
+import { MessageFeedback } from "./message-feedback";
 import { StatusBadge } from "./status-badge";
 import { TicketDraftCard } from "./ticket-draft-card";
 
@@ -319,6 +320,9 @@ export function CaseWorkspace({
                       <p className="mt-1.5 text-[9px] text-ink-tertiary">
                         引用 {message.citations.length} 条依据 · 可在中间查看原文
                       </p>
+                    )}
+                    {message.status === "COMPLETE" && (
+                      <MessageFeedback messageId={message.id} csrfToken={csrfToken} />
                     )}
                   </div>
                 </div>
