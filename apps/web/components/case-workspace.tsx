@@ -12,11 +12,14 @@ import type {
   KnowledgeLocator,
   MessageCitation,
   MessageListResponse,
+  TicketDetail,
+  TicketDraft,
   TimelineEvent
 } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
 import { Icon } from "./icons";
 import { StatusBadge } from "./status-badge";
+import { TicketDraftCard } from "./ticket-draft-card";
 
 interface WorkspaceStatus {
   status: string;
@@ -37,18 +40,22 @@ export function CaseWorkspace({
   caseData,
   initialMessages,
   initialTimeline,
+  initialTicketDraft,
   csrfToken,
   userName,
   canSend,
-  canAutoStart
+  canAutoStart,
+  canManageTickets
 }: {
   caseData: CaseDetail;
   initialMessages: ChatMessage[];
   initialTimeline: TimelineEvent[];
+  initialTicketDraft: TicketDraft | null;
   csrfToken: string;
   userName: string;
   canSend: boolean;
   canAutoStart: boolean;
+  canManageTickets: boolean;
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -64,6 +71,9 @@ export function CaseWorkspace({
   const [streamSteps, setStreamSteps] = useState<StepState[]>([]);
   const [streamCitations, setStreamCitations] = useState<MessageCitation[]>([]);
   const [lastRefused, setLastRefused] = useState(caseData.status === "REFUSED");
+  const [ticketDraft, setTicketDraft] = useState<TicketDraft | null>(initialTicketDraft);
+  const [confirmedTicket, setConfirmedTicket] = useState<TicketDetail | null>(null);
+  const [ticketId, setTicketId] = useState<string | null>(caseData.ticket_id);
   const [error, setError] = useState<string | null>(null);
   const [sourceView, setSourceView] = useState<{
     citation: MessageCitation;
@@ -79,6 +89,10 @@ export function CaseWorkspace({
   useEffect(() => {
     setTimeline(initialTimeline);
   }, [initialTimeline]);
+
+  useEffect(() => {
+    setTicketId(caseData.ticket_id);
+  }, [caseData.ticket_id]);
 
   useEffect(() => {
     if (!canSend || !canAutoStart || initialMessages.length > 0 || autoStarted.current) return;
@@ -205,6 +219,8 @@ export function CaseWorkspace({
         } else if (frame.event === "done") {
           const value = frame.data as { refused?: boolean };
           setLastRefused(Boolean(value.refused));
+        } else if (frame.event === "ticket_draft") {
+          setTicketDraft(frame.data as unknown as TicketDraft);
         } else if (frame.event === "error") {
           const value = frame.data as { message?: string };
           setError(value.message ?? "生成回答失败，请稍后重试");
@@ -234,6 +250,14 @@ export function CaseWorkspace({
     } catch {
       setSourceView({ citation, locator: null, loading: false });
     }
+  }
+
+  function handleTicketConfirmed(ticket: TicketDetail) {
+    setConfirmedTicket(ticket);
+    setTicketDraft(null);
+    setTicketId(ticket.id);
+    setStatus({ status: "TICKET_OPEN", label: "已转工单", phase: "solution" });
+    router.refresh();
   }
 
   return (
@@ -414,6 +438,44 @@ export function CaseWorkspace({
             </div>
           </div>
 
+          {ticketDraft && (
+            <TicketDraftCard
+              draft={ticketDraft}
+              caseId={caseData.id}
+              csrfToken={csrfToken}
+              canManage={canManageTickets}
+              onConfirmed={handleTicketConfirmed}
+              onError={setError}
+            />
+          )}
+
+          {confirmedTicket && (
+            <div className="sd-card border-success/40 p-5">
+              <div className="flex items-start gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-control bg-success-soft text-success">
+                  <Icon name="ticket" size={17} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="sd-eyebrow">工单已创建</p>
+                  <h2 className="mt-1 text-sm font-semibold text-ink">
+                    {confirmedTicket.title}
+                  </h2>
+                  <p className="mt-1 text-[10px] text-ink-tertiary">
+                    {confirmedTicket.id} · {confirmedTicket.status_label} · 版本{" "}
+                    {confirmedTicket.version}
+                  </p>
+                  <Link
+                    href={`/tickets/${encodeURIComponent(confirmedTicket.id)}`}
+                    className="sd-button-primary mt-3 h-8"
+                  >
+                    打开工单
+                    <Icon name="arrow-right" size={13} />
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div id="evidence-panel" className="sd-card overflow-hidden">
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
               <div>
@@ -521,12 +583,24 @@ export function CaseWorkspace({
           <div className="sd-card p-4">
             <h2 className="text-xs font-semibold text-ink">关联对象</h2>
             <div className="mt-3 grid gap-2">
-              {["Ticket", "Action", "Approval"].map((item) => (
+              {ticketId ? (
+                <Link
+                  href={`/tickets/${encodeURIComponent(ticketId)}`}
+                  className="rounded-control border border-brand-border bg-brand-soft px-3 py-2 text-[10px] font-medium text-brand transition-colors hover:border-brand"
+                >
+                  Ticket <span className="float-right">查看</span>
+                </Link>
+              ) : (
+                <div className="rounded-control border border-dashed border-line-strong px-3 py-2 text-[10px] text-ink-tertiary">
+                  Ticket <span className="float-right">待确认</span>
+                </div>
+              )}
+              {["Action", "Approval"].map((item) => (
                 <div
                   key={item}
                   className="rounded-control border border-dashed border-line-strong px-3 py-2 text-[10px] text-ink-tertiary"
                 >
-                  {item} <span className="float-right">M2–M3</span>
+                  {item} <span className="float-right">M3</span>
                 </div>
               ))}
             </div>

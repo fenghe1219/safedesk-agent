@@ -7,6 +7,11 @@ import type {
   KnowledgeDocumentListResponse,
   MeResponse,
   MessageListResponse,
+  TicketAssignee,
+  TicketAssigneeListResponse,
+  TicketDetail,
+  TicketDraft,
+  TicketListResponse,
   TimelineEvent,
   TimelineResponse
 } from "./types";
@@ -67,4 +72,36 @@ export async function getCaseMessages(caseId: string): Promise<MessageListRespon
 export async function getKnowledgeDocuments(): Promise<KnowledgeDocumentListResponse> {
   const data = await serverFetch<KnowledgeDocumentListResponse>("/api/knowledge/documents");
   return data ?? { items: [], next_cursor: null };
+}
+
+export async function getTickets(filters: {
+  status?: string;
+  category?: string;
+  priority?: string;
+  assignee_id?: string;
+  q?: string;
+  limit?: number;
+} = {}): Promise<TicketListResponse> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  const query = params.toString();
+  const data = await serverFetch<TicketListResponse>(
+    `/api/tickets${query ? `?${query}` : ""}`
+  );
+  return data ?? { items: [], next_cursor: null };
+}
+
+export async function getTicket(ticketId: string): Promise<TicketDetail | null> {
+  return serverFetch<TicketDetail>(`/api/tickets/${encodeURIComponent(ticketId)}`);
+}
+
+export async function getTicketDraft(caseId: string): Promise<TicketDraft | null> {
+  return serverFetch<TicketDraft>(`/api/cases/${encodeURIComponent(caseId)}/ticket-draft`);
+}
+
+export async function getTicketAssignees(): Promise<TicketAssignee[]> {
+  const data = await serverFetch<TicketAssigneeListResponse>("/api/tickets/assignees");
+  return data?.items ?? [];
 }

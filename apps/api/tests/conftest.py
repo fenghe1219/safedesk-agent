@@ -52,6 +52,20 @@ TEST_USERS = [
         "department": "IT 安全",
     },
     {
+        "id": "user_support_1",
+        "name": "王工",
+        "email": "support1@example.test",
+        "role": Role.SUPPORT.value,
+        "department": "桌面支持",
+    },
+    {
+        "id": "user_support_2",
+        "name": "李工",
+        "email": "support2@example.test",
+        "role": Role.SUPPORT.value,
+        "department": "桌面支持",
+    },
+    {
         "id": "user_admin",
         "name": "管理员",
         "email": "admin@example.test",

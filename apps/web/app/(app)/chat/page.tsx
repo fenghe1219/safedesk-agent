@@ -29,7 +29,7 @@ export default async function ChatPage() {
         </div>
         <div className="flex items-center gap-2 text-[10px] text-ink-tertiary">
           <span className="h-1.5 w-1.5 rounded-full bg-success" />
-          M1 知识检索已连接
+          M2 工单分诊已连接
         </div>
       </header>
 

@@ -1,6 +1,6 @@
 # SafeDesk API 与 SSE 契约 v0.1
 
-> 状态：设计底稿，待进入实现前评审  
+> 状态：M2 已实现；审批与执行接口仍为 M3 设计底稿
 > 目标：覆盖 MVP 页面和状态变化，不提前设计生产级集成  
 > 关联文档：`docs/data-model-and-state-machines.md`、`docs/ia-and-flows.md`
 
@@ -103,13 +103,21 @@
 
 | 方法 | 路径 | 角色 | 说明 |
 | --- | --- | --- | --- |
-| GET | `/api/tickets` | 授权范围 | 工单列表 |
+| GET | `/api/tickets` | 授权范围 | 工单列表，支持状态/分类/优先级/处理人/关键词筛选 |
 | POST | `/api/tickets` | Support/Admin | 从草稿创建工单 |
 | GET | `/api/tickets/{id}` | 有权限 | 工单详情 |
 | PATCH | `/api/tickets/{id}` | Support/Admin | 修改字段，带 version |
 | POST | `/api/tickets/{id}/transition` | Support/Admin | 状态流转 |
 | POST | `/api/tickets/{id}/notes` | Support/Admin | 添加处理备注 |
+| GET | `/api/tickets/assignees` | 有工单权限 | 可分派人员与活跃负载 |
+| GET | `/api/cases/{id}/ticket-draft` | 有 Case 权限 | 读取 Case 的待确认草稿 |
 | GET | `/api/tickets/{id}/export` | P1 | 导出 JSON |
+
+工单 ACL：
+
+- Employee 只能访问 `requester_id = current_user` 的工单；越权统一返回 `404 NOT_FOUND`，不泄露资源是否存在。
+- Support/Admin 可管理工单；Approver 可只读，但详情不返回内部处理备注。
+- `DRAFT` 草稿不出现在 `/api/tickets` 列表，只能通过 Case 的草稿端点读取；确认时校验 `draft_version`。
 
 ### 2.5 审批
 
@@ -380,7 +388,7 @@ data: {"text":"根据内部文档，"}
 | `step` | `name`、`label`、`phase`、`status` | 显示当前步骤轨 |
 | `token` | `text` | 流式追加回答文本 |
 | `citation` | `index`、`chunk_id`、`doc_id`、`title`、`version`、`page`、`section`、`quote` | 生成引用面板 |
-| `ticket_draft` | `ticket_id`、`status`、`missing_fields` | 显示或更新工单草稿卡 |
+| `ticket_draft` | 完整 `TicketOut` 投影，另含 `ticket_id` | 显示或更新工单草稿卡 |
 | `action` | `action_id`、`status`、`tool_name`、`tool_label`、`risk_level`、`expires_at` | 显示动作卡 |
 | `status` | `case_status`、`status_label`、`phase` | 更新 Case 状态 |
 | `done` | `case_status`、`message_id`、`request_id` | 终止事件，保存消息 |
@@ -434,6 +442,36 @@ data: {"case_status":"AWAITING_APPROVAL","message_id":"msg_01J...","request_id":
 | `status` | 更新 Case 状态标签和五阶段进度 |
 | `done` | 结束加载态，开放反馈、停止/重试按钮状态 |
 | `error` | 显示内联错误和重试；保留部分回答并标注未完成 |
+
+### 4.6 M2 实际草稿载荷
+
+`ticket_draft` 直接返回服务端投影后的草稿，前端不需要再用普通工单接口拼装：
+
+```json
+{
+  "ticket_id": "tkt_01J...",
+  "id": "tkt_01J...",
+  "case_id": "case_01J...",
+  "status": "DRAFT",
+  "version": 2,
+  "category": "hardware",
+  "category_label": "硬件与设备",
+  "priority": "P2",
+  "priority_label": "P2 高",
+  "priority_reason": "单人工作受阻，需要尽快恢复打印。",
+  "title": "打印机报错 0x0000011b",
+  "description": "Windows 11 打印机报错 0x0000011b，需要处理。",
+  "environment": "Windows 11",
+  "error_message": "0x0000011b",
+  "missing_fields": [],
+  "suggested_assignee_id": "user_2001",
+  "suggested_assignee_name": "王工",
+  "suggested_assignee_reason": "匹配桌面支持技能组，当前负载最低。",
+  "fields": {}
+}
+```
+
+确认建单后 `done` 事件同时返回 `ticket_id`，Case 端点随后返回 `status = TICKET_OPEN` 与同一个 `ticket_id`。
 
 ## 5. Case 更新订阅 SSE
 

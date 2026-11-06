@@ -34,6 +34,7 @@ export interface CaseSummary {
   requester_id: string;
   current_node: string;
   intent: string | null;
+  ticket_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -152,6 +153,77 @@ export interface KnowledgeSearchItem {
 export interface KnowledgeSearchResponse {
   query: string;
   items: KnowledgeSearchItem[];
+}
+
+export interface Ticket {
+  id: string;
+  case_id: string;
+  requester_id: string;
+  requester_name: string;
+  title: string;
+  description: string;
+  category: string;
+  category_label: string;
+  priority: string;
+  priority_label: string;
+  priority_reason: string;
+  affected_system: string | null;
+  environment: string | null;
+  error_message: string | null;
+  urgency_reason: string | null;
+  suggested_assignee_id: string | null;
+  suggested_assignee_name: string | null;
+  suggested_assignee_reason: string | null;
+  assignee_id: string | null;
+  assignee_name: string | null;
+  status: string;
+  status_label: string;
+  fields: Record<string, unknown>;
+  missing_fields: string[];
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TicketNote {
+  id: string;
+  ticket_id: string;
+  author_id: string;
+  author_name: string;
+  content: string;
+  created_at: string;
+}
+
+export interface TicketDetail extends Ticket {
+  notes: TicketNote[];
+}
+
+export interface TicketListResponse {
+  items: Ticket[];
+  next_cursor: string | null;
+}
+
+export interface TicketCreateResponse {
+  ticket: TicketDetail;
+  case: CaseSummary;
+}
+
+export interface TicketDraft extends Ticket {
+  ticket_id: string;
+}
+
+export interface TicketAssignee {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  role_label: string;
+  department: string;
+  open_ticket_count: number;
+}
+
+export interface TicketAssigneeListResponse {
+  items: TicketAssignee[];
 }
 
 export interface ApiErrorBody {

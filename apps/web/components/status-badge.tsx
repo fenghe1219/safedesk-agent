@@ -1,6 +1,12 @@
 import { cn } from "@/lib/utils";
 
 const STATUS_STYLES: Record<string, string> = {
+  DRAFT: "bg-subtle text-ink-secondary",
+  OPEN: "bg-info-soft text-info",
+  ASSIGNED: "bg-brand-soft text-brand",
+  IN_PROGRESS: "bg-info-soft text-info",
+  CLOSED: "bg-subtle text-ink-tertiary",
+  REOPENED: "bg-warning-soft text-warning",
   NEW: "bg-subtle text-ink-secondary",
   UNDERSTANDING: "bg-brand-soft text-brand",
   RETRIEVING: "bg-info-soft text-info",
@@ -21,6 +27,12 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 const DOT_STYLES: Record<string, string> = {
+  DRAFT: "bg-ink-tertiary",
+  OPEN: "bg-info",
+  ASSIGNED: "bg-brand",
+  IN_PROGRESS: "bg-info",
+  CLOSED: "bg-ink-tertiary",
+  REOPENED: "bg-warning",
   NEW: "bg-ink-tertiary",
   UNDERSTANDING: "bg-brand",
   RETRIEVING: "bg-info",

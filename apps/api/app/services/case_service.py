@@ -59,6 +59,9 @@ EVENT_SUMMARIES: dict[str, str] = {
     "retrieval.completed": "完成知识检索",
     "evidence.insufficient": "证据不足",
     "ticket.created": "创建工单",
+    "ticket.drafted": "生成工单草稿",
+    "ticket.updated": "更新工单",
+    "ticket.transitioned": "流转工单状态",
     "action.proposed": "提议动作",
     "approval.requested": "请求审批",
     "approval.approved": "审批通过",
@@ -97,6 +100,7 @@ def to_case_out(case: Case) -> CaseOut:
         requester_id=case.requester_id,
         current_node=case.current_node,
         intent=case.intent,
+        ticket_id=case.ticket_id,
         created_at=case.created_at,
         updated_at=case.updated_at,
     )

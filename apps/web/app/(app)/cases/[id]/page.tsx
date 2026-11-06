@@ -6,7 +6,7 @@ import { AccessDenied } from "@/components/access-denied";
 import { CaseProgress } from "@/components/case-progress";
 import { CaseWorkspace } from "@/components/case-workspace";
 import { StatusBadge } from "@/components/status-badge";
-import { getCase, getCaseMessages, getCaseTimeline } from "@/lib/server-api";
+import { getCase, getCaseMessages, getCaseTimeline, getTicketDraft } from "@/lib/server-api";
 import { can, requireMe } from "@/lib/page-guard";
 import { formatDateTime } from "@/lib/utils";
 
@@ -27,10 +27,12 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
     return <AccessDenied me={me} detail="当前角色没有读取 Case 的权限。" />;
   }
 
-  const [caseData, timeline, messages] = await Promise.all([
+  const canViewTickets = can(me, "ticket:view");
+  const [caseData, timeline, messages, ticketDraft] = await Promise.all([
     getCase(id),
     getCaseTimeline(id),
-    getCaseMessages(id)
+    getCaseMessages(id),
+    canViewTickets ? getTicketDraft(id) : Promise.resolve(null)
   ]);
   if (!caseData) notFound();
 
@@ -63,7 +65,7 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <span className="sd-chip">M1 · 知识闭环</span>
+            <span className="sd-chip">M2 · 分诊与工单</span>
           </div>
         </div>
 
@@ -76,10 +78,12 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
         caseData={caseData}
         initialMessages={messages.items}
         initialTimeline={timeline}
+        initialTicketDraft={ticketDraft}
         csrfToken={me.csrf_token}
         userName={me.user.name}
         canSend={can(me, "case:read")}
         canAutoStart={me.user.id === caseData.requester_id}
+        canManageTickets={can(me, "ticket:manage")}
       />
     </div>
   );

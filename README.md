@@ -2,7 +2,7 @@
 
 可审计、可评估、可人工接管的企业服务台 Agent 工作台。
 
-当前进度：**M1 知识闭环已完成并通过本机验收**。在 M0 骨架之上，已接入文档导入、切分与索引、带 ACL 的混合检索、流式回答、引用与原文定位、无依据拒答，以及可用的 Case 对话工作台。工单、审批执行、评估等模块将在 M2–M4 接入。
+当前进度：**M2 分诊与工单已完成并通过本机验收**。在 M1 知识闭环之上，已接入 7 类分诊、P1–P4 优先级、缺失信息追问、工单草稿与确认建单、处理人推荐、工单列表/详情/流转和员工范围 ACL。审批执行、评估看板等模块将在 M3–M4 接入。
 
 ![M0 登录页](docs/design-preview/m0-login.png)
 
@@ -40,7 +40,7 @@ Browser
        ├─ /api/* 同源代理（转发 Cookie、CSRF 与 Set-Cookie）
        └─ FastAPI / SQLAlchemy / Alembic
             ├─ PostgreSQL 16 + pgvector + pg_trgm
-            └─ 后续：Python Worker + LangGraph 编排
+            └─ 后续：显式工作流与持久化检查点（M3）
 ```
 
 - 模块化单体，不拆微服务；业务数据库是唯一事实源。
@@ -48,6 +48,7 @@ Browser
 - 导航和操作入口由服务端返回的权限生成，服务端同时强制资源归属。
 - Admin 可查看审批队列，但不自动拥有 `approval:decide` 权限。
 - M1 检索采用 `pg_trgm` 词法匹配 + 本地哈希向量重排；向量存储接口已隔离，后续可替换为 pgvector。
+- M2 工单草稿持久化为 `DRAFT`，但不出现在工单列表；确认时与 Case 双向关联在同一事务中完成。
 - MVP 暂不引入 Redis。
 
 ## M0 已实现
@@ -77,6 +78,24 @@ Browser
 2. Case 自动检索并流式回答，中间栏展示结论、步骤和引用；点击“查看原文”核对高亮片段。
 3. 新建 Case 输入“帮我查一下同事的工资”，确认安全拒答且没有引用或越权动作。
 4. 切换到管理员，在 `/knowledge` 上传 Markdown、重建索引，并用“检索测试”检查命中片段。
+
+## M2 已实现
+
+- 分诊：固定 7 类分类法、P1–P4 优先级与必填理由，抽取环境、错误码、影响系统和缺失字段。
+- 信息不足：先进入 `NEEDS_INPUT` 并只追问，不创建草稿；补齐信息后才生成结构化草稿。
+- 工单草稿：展示分类、优先级、字段、证据与推荐处理人；草稿不出现在工单列表，确认后才转为 `OPEN`。
+- 工单管理：列表筛选、详情、字段修改、乐观锁冲突、状态流转、处理备注、Case 与 Ticket 双向关联。
+- 处理人推荐：优先匹配分类技能组，再按当前活跃工单负载排序，并返回可解释的推荐理由。
+- 权限：Employee 仅能读取本人工单；Support/Admin 可管理；Approver 只读且不返回内部备注；越权统一返回 404。
+- 评估集：`apps/api/app/eval_data/ticket_80.jsonl` 共 80 条，覆盖 7 类分类和 P1–P4；规则基线与数据集预期一致性为分类 80/80、优先级 80/80。该结果仅用于固定集覆盖验证，不代表开放场景泛化准确率。
+- 前端：`/tickets`、`/tickets/[id]`、Case 工作台工单草稿卡与确认后关联入口。
+
+### M2 演示路径
+
+1. 使用员工账号在 `/chat` 输入“打印机坏了，帮我建个工单”，确认只追问操作系统和报错信息。
+2. 补充“Windows 11，报错 0x0000011b”，确认生成 `hardware/P2` 草稿、推荐处理人和缺失字段提示。
+3. 切换到王工，在 Case 工作台核对并修改草稿后确认建单；Case 变为“已转工单”，并可通过 `/tickets` 打开详情。
+4. 在工单详情修改优先级、分派处理人、流转状态并添加内部备注；切换到审批人确认只读且看不到内部备注。
 
 ## 本地开发
 
@@ -117,15 +136,17 @@ ruff check .
 以下为 2026-11-06 的本机验收结果。
 
 - `npm run typecheck`：通过。
-- `npm run build`：通过，13 个 App Router 路由成功生成。
+- `npm run build`：通过，14 个 App Router 路由成功生成。
 - Next.js 运行时冒烟：`/login` 返回 200；后端不可用时同源代理返回 502。
-- `pytest`：20/20 通过（覆盖检索、ACL、流式回答、引用定位、拒答与文档启停；测试使用 SQLite 内存库）。
+- `pytest`：31/31 通过（覆盖检索、ACL、流式回答、引用定位、拒答、文档启停、工单草稿/确认/流转/筛选/只读角色与审计；测试使用 SQLite 内存库）。
 - `ruff check .`：通过（FastAPI 的 `Depends` 默认参数规则 B008 已按框架惯例忽略）。
-- Docker Compose 运行态验收：db/api/web 均健康，`0002` 迁移和 5 份演示知识成功加载；`/login` 返回 200，`/api/health` 数据库正常。
+- Docker Compose 运行态验收：db/api/web 均健康，`0003` 迁移和 5 份演示知识成功加载；`/login`、`/tickets`、`/tickets/[id]` 与 Case 工作台均返回 200。
 - M1 端到端：经 Next 同源代理验证 SSE `step/citation/token/status/done` 流式事件、`[1]` 引用与原文定位、无依据/敏感请求拒答、知识上传后检索和停用、Employee 知识列表 403 与来源 ACL，以及刷新不重复发送。
 - Docker Compose 构建：`docker compose up --build` 成功，API/Web 镜像与运行态无未处理异常。
 - 审计不可变：对 `audit_events` 执行 UPDATE 被 PostgreSQL 触发器拒绝。
 - 中文往返：Case 标题创建与读取无误。
+- M2 端到端：经 Next 同源代理验证模糊请求追问、补齐后草稿、Support 确认建单、Case/Ticket 双向关联、列表筛选、字段修改、分派、Approver 只读与 Employee 本人范围。
+- M2 审计：确认存在 `ticket.drafted`、`ticket.created`、`ticket.updated`、`ticket.transitioned` 事件。
 
 ## 文档
 
