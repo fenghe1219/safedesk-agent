@@ -16,6 +16,8 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models.user import User
+from app.seed import DEMO_DOCUMENTS
+from app.services.knowledge_service import create_document
 
 TEST_PASSWORD = "Demo123!"
 TEST_PASSWORD_HASH = hash_password(TEST_PASSWORD)
@@ -58,6 +60,8 @@ TEST_USERS = [
     },
 ]
 
+TEST_DOCUMENTS = DEMO_DOCUMENTS[:2]
+
 test_engine = create_async_engine(
     "sqlite+aiosqlite:///:memory:",
     connect_args={"check_same_thread": False},
@@ -90,6 +94,17 @@ async def prepared_database():
                     department=item["department"],
                     is_active=True,
                 )
+            )
+        await db.commit()
+        for item in TEST_DOCUMENTS:
+            await create_document(
+                db,
+                title=item["title"],
+                version=item["version"],
+                owner_id="user_admin",
+                raw_content=item["content"],
+                source_type="markdown",
+                acl={"departments": []},
             )
         await db.commit()
     yield

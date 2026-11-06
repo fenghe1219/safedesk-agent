@@ -1,7 +1,7 @@
 # SafeDesk 设计底稿
 
 > 版本：v0.2  
-> 状态：设计评审已通过，M0 工程骨架已落地  
+> 状态：设计评审已通过，M1 知识闭环已完成本机 Compose 验收
 > 依据：`E:\SafeDesk\SafeDesk-完整需求说明书.md`
 
 ## 文件索引
@@ -36,13 +36,14 @@
 ## 当前进度
 
 - M0 已完成：Docker Compose、数据库初始迁移、登录/RBAC、Case 创建与时间线、角色化 Web 外壳。
-- 设计系统、导航、Case 工作台和审批队列底稿继续作为 M1–M4 的实现依据。
+- M1 已完成：知识文档导入与切分、混合检索、SSE 回答、引用与原文定位、拒答、Case 对话工作台。
+- 设计系统、导航、Case 工作台和审批队列底稿继续作为 M2–M4 的实现依据。
 - 启动方式、演示账号和验证状态见根目录 `README.md`。
 
 ![M0 登录页](design-preview/m0-login.png)
 
 ## 下一步
 
-1. 在具备 Docker Desktop 的环境执行 `docker compose up --build`，完成端到端冒烟。
-2. M1：接入 Case 对话、Agent 编排骨架、检索证据面板和流式回答契约。
-3. M2：工单、知识库与运营指标。
+1. M1 已于 2026-11-06 完成本机 Docker Compose 端到端验收。
+2. M2：分诊、工单 CRUD、处理人推荐与评估集初版。
+3. M3：Tool Gateway、LangGraph 检查点、审批与幂等执行。

@@ -4,7 +4,9 @@ import { cookies } from "next/headers";
 import type {
   CaseDetail,
   CaseListResponse,
+  KnowledgeDocumentListResponse,
   MeResponse,
+  MessageListResponse,
   TimelineEvent,
   TimelineResponse
 } from "./types";
@@ -53,4 +55,16 @@ export async function getCaseTimeline(caseId: string): Promise<TimelineEvent[]> 
     `/api/cases/${encodeURIComponent(caseId)}/timeline`
   );
   return data?.items ?? [];
+}
+
+export async function getCaseMessages(caseId: string): Promise<MessageListResponse> {
+  const data = await serverFetch<MessageListResponse>(
+    `/api/cases/${encodeURIComponent(caseId)}/messages`
+  );
+  return data ?? { items: [], next_cursor: null };
+}
+
+export async function getKnowledgeDocuments(): Promise<KnowledgeDocumentListResponse> {
+  const data = await serverFetch<KnowledgeDocumentListResponse>("/api/knowledge/documents");
+  return data ?? { items: [], next_cursor: null };
 }

@@ -20,7 +20,7 @@ export async function clientRequest<T>(path: string, options: ClientRequestOptio
   const { csrfToken, ...init } = options;
   const headers = new Headers(init.headers);
   if (csrfToken) headers.set("X-CSRF-Token", csrfToken);
-  if (init.body && !headers.has("Content-Type")) {
+  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 

@@ -97,6 +97,7 @@
 | GET | `/api/knowledge/documents/{id}/chunks` | Admin/Evaluator 只读 | 分页查看切分 |
 | GET | `/api/knowledge/documents/{id}/file` | 有引用权限 | 返回原文件流 |
 | GET | `/api/knowledge/documents/{id}/locator` | 有引用权限 | 根据 chunk 返回页码、章节、偏移和 bbox |
+| GET | `/api/knowledge/search?q=` | Admin/Evaluator | 检索测试，返回排序后的 chunk 快照 |
 
 ### 2.4 工单
 

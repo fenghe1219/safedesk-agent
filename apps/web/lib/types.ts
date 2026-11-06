@@ -59,6 +59,101 @@ export interface TimelineResponse {
   items: TimelineEvent[];
 }
 
+export interface MessageCitation {
+  id: string;
+  index: number;
+  chunk_id: string;
+  doc_id: string;
+  title: string;
+  version: string;
+  page: number;
+  section: string;
+  quote: string;
+  offset_start: number;
+  offset_end: number;
+  source_available: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  case_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  status: "STREAMING" | "COMPLETE" | "STOPPED" | "FAILED";
+  citations: MessageCitation[];
+  model_version: string;
+  prompt_version: string;
+  created_at: string;
+}
+
+export interface MessageListResponse {
+  items: ChatMessage[];
+  next_cursor: string | null;
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  title: string;
+  version: string;
+  owner_id: string;
+  effective_at: string;
+  source_type: string;
+  acl: { departments?: string[] };
+  status: "DRAFT" | "PROCESSING" | "READY" | "FAILED" | "DISABLED";
+  parse_error: string | null;
+  chunk_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeDocumentListResponse {
+  items: KnowledgeDocument[];
+  next_cursor: string | null;
+}
+
+export interface KnowledgeChunk {
+  id: string;
+  doc_id: string;
+  doc_version: string;
+  content: string;
+  page: number;
+  section: string;
+  offset_start: number;
+  offset_end: number;
+  ordinal: number;
+  created_at: string;
+}
+
+export interface KnowledgeLocator {
+  doc_id: string;
+  chunk_id: string;
+  title: string;
+  version: string;
+  status: string;
+  page: number;
+  section: string;
+  offset_start: number;
+  offset_end: number;
+  quote: string;
+  raw_content: string;
+}
+
+export interface KnowledgeSearchItem {
+  chunk_id: string;
+  doc_id: string;
+  title: string;
+  version: string;
+  page: number;
+  section: string;
+  quote: string;
+  score: number;
+}
+
+export interface KnowledgeSearchResponse {
+  query: string;
+  items: KnowledgeSearchItem[];
+}
+
 export interface ApiErrorBody {
   error?: {
     code?: string;

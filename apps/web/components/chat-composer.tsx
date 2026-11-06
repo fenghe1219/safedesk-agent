@@ -28,7 +28,8 @@ export function ChatComposer({
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canCreate) return;
-    const title = text.trim().replace(/\s+/g, " ").slice(0, 80);
+    const fullText = text.trim();
+    const title = fullText.replace(/\s+/g, " ").slice(0, 80);
     if (!title) {
       setError("请先描述你遇到的问题");
       return;
@@ -42,6 +43,9 @@ export function ChatComposer({
         body: JSON.stringify({ title }),
         csrfToken
       });
+      try {
+        window.sessionStorage.setItem(`safedesk.initial.${created.id}`, fullText);
+      } catch {}
       router.push(`/cases/${created.id}`);
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : "创建 Case 失败，请稍后重试");
@@ -77,7 +81,7 @@ export function ChatComposer({
           maxLength={600}
         />
         <div className="flex items-center justify-between gap-3 border-t border-line pt-2.5">
-          <span className="text-[10px] text-ink-tertiary">Ctrl / ⌘ + Enter 创建 · M1 接入 Agent</span>
+          <span className="text-[10px] text-ink-tertiary">Ctrl / ⌘ + Enter 创建 · 自动检索知识库</span>
           <button className="sd-button-primary" type="submit" disabled={pending}>
             {pending ? "正在创建…" : "创建 Case"}
             <Icon name="arrow-right" size={14} />

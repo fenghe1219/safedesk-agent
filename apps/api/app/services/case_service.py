@@ -1,5 +1,11 @@
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.errors import AppError
+from app.core.rbac import has_permission
 from app.models.audit import AuditEvent
 from app.models.case import Case
+from app.models.user import User
 from app.schemas.case import CaseOut, TimelineEventOut
 
 CASE_STATUS_LABELS: dict[str, str] = {
@@ -50,6 +56,8 @@ EVENT_SUMMARIES: dict[str, str] = {
     "message.received": "收到用户消息",
     "answer.generated": "生成回答",
     "answer.refused": "拒答",
+    "retrieval.completed": "完成知识检索",
+    "evidence.insufficient": "证据不足",
     "ticket.created": "创建工单",
     "action.proposed": "提议动作",
     "approval.requested": "请求审批",
@@ -62,7 +70,21 @@ EVENT_SUMMARIES: dict[str, str] = {
     "auth.login": "登录",
     "auth.logout": "退出",
     "auth.demo_switch": "切换演示身份",
+    "knowledge.document_imported": "导入知识文档",
+    "knowledge.document_reindexed": "重建知识索引",
+    "knowledge.document_updated": "更新知识文档",
+    "knowledge.document_deleted": "删除知识文档",
 }
+
+
+async def get_accessible_case(db: AsyncSession, user: User, case_id: str) -> Case:
+    result = await db.execute(select(Case).where(Case.id == case_id))
+    case = result.scalar_one_or_none()
+    if case is None:
+        raise AppError("NOT_FOUND", "Case 不存在", 404)
+    if case.requester_id != user.id and not has_permission(user.role, "case:read_all"):
+        raise AppError("NOT_FOUND", "Case 不存在", 404)
+    return case
 
 
 def to_case_out(case: Case) -> CaseOut:

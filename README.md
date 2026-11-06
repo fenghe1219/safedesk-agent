@@ -2,7 +2,7 @@
 
 可审计、可评估、可人工接管的企业服务台 Agent 工作台。
 
-当前进度：**M0 工程骨架已完成并通过验收**，包括登录与 RBAC、Case 基础链路、数据库迁移、审计事件、Docker Compose 和角色化前端外壳。知识检索、工单、审批执行、评估等业务模块将在 M1–M4 接入。
+当前进度：**M1 知识闭环已完成并通过本机验收**。在 M0 骨架之上，已接入文档导入、切分与索引、带 ACL 的混合检索、流式回答、引用与原文定位、无依据拒答，以及可用的 Case 对话工作台。工单、审批执行、评估等模块将在 M2–M4 接入。
 
 ![M0 登录页](docs/design-preview/m0-login.png)
 
@@ -15,7 +15,7 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-打开 <http://localhost:3000/login>。首次启动会自动执行 Alembic 迁移并写入演示账号。
+打开 <http://localhost:3000/login>。首次启动会自动执行 Alembic 迁移，并写入演示账号与合成知识文档。
 
 ### 演示账号
 
@@ -47,7 +47,7 @@ Browser
 - 登录会话使用 HttpOnly Cookie，写请求要求 `X-CSRF-Token`。
 - 导航和操作入口由服务端返回的权限生成，服务端同时强制资源归属。
 - Admin 可查看审批队列，但不自动拥有 `approval:decide` 权限。
-- 中文检索先采用 pgvector + pg_trgm，并保留分词适配边界。
+- M1 检索采用 `pg_trgm` 词法匹配 + 本地哈希向量重排；向量存储接口已隔离，后续可替换为 pgvector。
 - MVP 暂不引入 Redis。
 
 ## M0 已实现
@@ -59,6 +59,24 @@ Browser
 - Case：创建、列表、详情、时间线，创建事件与业务写入同事务。
 - 前端：登录页、角色化应用外壳、工作台、三栏 Case 骨架、各治理模块占位页、404/错误/加载态。
 - 契约基础：统一错误结构、请求 ID、OpenAPI、CSRF 和 Cookie 安全属性。
+
+## M1 已实现
+
+- 知识库：Admin 可上传 Markdown/TXT/PDF，自动解析章节、页码、字符偏移并切分索引；Evaluator 只读查看。
+- 检索：按文档状态与部门 ACL 过滤，使用中文词法匹配与本地哈希向量进行混合排序，并保留阈值拒答。
+- 对话：Case 消息持久化，`POST /api/cases/{id}/messages` 返回 SSE 步骤、token、引用、状态和 done 事件。
+- 回答：结构包含结论、处理步骤、下一步；回答只引用检索 chunk，服务端生成引用快照，不允许前端反推来源。
+- 拒答：敏感越权、提示注入式请求与无足够证据的问题不生成操作步骤，记录 `answer.refused` 审计事件。
+- 来源定位：引用可打开原文阅读器，按字符偏移高亮精确片段；文档停用后历史引用标记“来源已停用”。
+- 工作台：新建 Case 后自动发起首轮问题，展示流式步骤、回答、证据面板、精确状态与时间线。
+- 演示数据：空库启动即包含 VPN、打印机、账号锁定、敏感数据规范和会议室五份合成知识文档。
+
+### M1 演示路径
+
+1. 使用员工账号登录，在 `/chat` 输入“我的 VPN 一直连不上，提示证书无效”。
+2. Case 自动检索并流式回答，中间栏展示结论、步骤和引用；点击“查看原文”核对高亮片段。
+3. 新建 Case 输入“帮我查一下同事的工资”，确认安全拒答且没有引用或越权动作。
+4. 切换到管理员，在 `/knowledge` 上传 Markdown、重建索引，并用“检索测试”检查命中片段。
 
 ## 本地开发
 
@@ -96,14 +114,16 @@ ruff check .
 
 ## 当前验证状态
 
-以下为 2026-11-05 的本机验收结果。
+以下为 2026-11-06 的本机验收结果。
 
 - `npm run typecheck`：通过。
 - `npm run build`：通过，13 个 App Router 路由成功生成。
 - Next.js 运行时冒烟：`/login` 返回 200；后端不可用时同源代理返回 502。
-- `pytest`：12/12 通过（测试使用 SQLite 内存库，`tests/` 已作为包导入）。
+- `pytest`：20/20 通过（覆盖检索、ACL、流式回答、引用定位、拒答与文档启停；测试使用 SQLite 内存库）。
 - `ruff check .`：通过（FastAPI 的 `Depends` 默认参数规则 B008 已按框架惯例忽略）。
-- Docker Compose 运行态验收：db/api/web 均健康；登录、CSRF、Case 创建/详情/时间线、演示身份切换、退出会话失效均通过。
+- Docker Compose 运行态验收：db/api/web 均健康，`0002` 迁移和 5 份演示知识成功加载；`/login` 返回 200，`/api/health` 数据库正常。
+- M1 端到端：经 Next 同源代理验证 SSE `step/citation/token/status/done` 流式事件、`[1]` 引用与原文定位、无依据/敏感请求拒答、知识上传后检索和停用、Employee 知识列表 403 与来源 ACL，以及刷新不重复发送。
+- Docker Compose 构建：`docker compose up --build` 成功，API/Web 镜像与运行态无未处理异常。
 - 审计不可变：对 `audit_events` 执行 UPDATE 被 PostgreSQL 触发器拒绝。
 - 中文往返：Case 标题创建与读取无误。
 

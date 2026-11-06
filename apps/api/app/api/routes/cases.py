@@ -12,19 +12,9 @@ from app.models.case import Case
 from app.models.user import User
 from app.schemas.case import CaseCreate, CaseListResponse, CaseOut, TimelineResponse
 from app.services.audit import record_event
-from app.services.case_service import to_case_out, to_timeline_event
+from app.services.case_service import get_accessible_case, to_case_out, to_timeline_event
 
 router = APIRouter(prefix="/cases", tags=["cases"])
-
-
-async def _get_accessible_case(db: AsyncSession, user: User, case_id: str) -> Case:
-    result = await db.execute(select(Case).where(Case.id == case_id))
-    case = result.scalar_one_or_none()
-    if case is None:
-        raise AppError("NOT_FOUND", "Case 不存在", 404)
-    if case.requester_id != user.id and not has_permission(user.role, "case:read_all"):
-        raise AppError("NOT_FOUND", "Case 不存在", 404)
-    return case
 
 
 @router.get("", response_model=CaseListResponse)
@@ -81,7 +71,7 @@ async def get_case(
     user: User = Depends(require_permission("case:read")),
     db: AsyncSession = Depends(get_db),
 ) -> CaseOut:
-    case = await _get_accessible_case(db, user, case_id)
+    case = await get_accessible_case(db, user, case_id)
     return to_case_out(case)
 
 
@@ -91,7 +81,7 @@ async def get_case_timeline(
     user: User = Depends(require_permission("case:read")),
     db: AsyncSession = Depends(get_db),
 ) -> TimelineResponse:
-    await _get_accessible_case(db, user, case_id)
+    await get_accessible_case(db, user, case_id)
     result = await db.execute(
         select(AuditEvent)
         .where(AuditEvent.case_id == case_id)

@@ -6,12 +6,12 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import auth, cases, demo, health, me
+from app.api.routes import auth, cases, demo, health, knowledge, me, messages
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.security import new_id
 from app.db.session import engine
-from app.seed import seed_demo_users
+from app.seed import seed_demo_data
 
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     if settings.seed_demo:
         try:
-            await seed_demo_users()
+            await seed_demo_data()
         except Exception:
             logger.exception("Demo seed failed; API will still start")
     yield
@@ -65,6 +65,8 @@ def create_app() -> FastAPI:
     app.include_router(me.router, prefix=settings.api_prefix)
     app.include_router(demo.router, prefix=settings.api_prefix)
     app.include_router(cases.router, prefix=settings.api_prefix)
+    app.include_router(messages.router, prefix=settings.api_prefix)
+    app.include_router(knowledge.router, prefix=settings.api_prefix)
 
     @app.get(settings.api_prefix, include_in_schema=False)
     async def api_root() -> JSONResponse:

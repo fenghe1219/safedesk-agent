@@ -10,6 +10,7 @@ from app.core.security import utcnow
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.message import Message
     from app.models.user import User
 
 
@@ -32,3 +33,6 @@ class Case(Base):
     )
 
     requester: Mapped[User] = relationship(back_populates="cases")
+    messages: Mapped[list[Message]] = relationship(
+        back_populates="case", cascade="all, delete-orphan", order_by="Message.created_at"
+    )

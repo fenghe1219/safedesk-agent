@@ -29,7 +29,7 @@ export default async function ChatPage() {
         </div>
         <div className="flex items-center gap-2 text-[10px] text-ink-tertiary">
           <span className="h-1.5 w-1.5 rounded-full bg-success" />
-          M0 服务已连接
+          M1 知识检索已连接
         </div>
       </header>
 
@@ -39,7 +39,7 @@ export default async function ChatPage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold text-ink">描述你遇到的问题</h2>
-                <p className="mt-1 text-[11px] text-ink-secondary">M0 会先创建 Case 并记录审计事件；Agent 检索与回答在 M1 接入。</p>
+                <p className="mt-1 text-[11px] text-ink-secondary">创建 Case 后自动检索知识库，并给出带引用、可回到原文的回答。</p>
               </div>
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-control bg-brand-soft text-brand">
                 <Icon name="spark" size={16} />
