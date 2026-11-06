@@ -17,6 +17,7 @@ class CaseOut(BaseModel):
     current_node: str
     intent: str | None = None
     ticket_id: str | None = None
+    action_id: str | None = None
     created_at: datetime
     updated_at: datetime
 

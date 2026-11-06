@@ -2,7 +2,7 @@
 
 可审计、可评估、可人工接管的企业服务台 Agent 工作台。
 
-当前进度：**M2 分诊与工单已完成并通过本机验收**。在 M1 知识闭环之上，已接入 7 类分诊、P1–P4 优先级、缺失信息追问、工单草稿与确认建单、处理人推荐、工单列表/详情/流转和员工范围 ACL。审批执行、评估看板等模块将在 M3–M4 接入。
+当前进度：**M3 审批与受控执行已完成并通过本机验收**。在 M2 分诊与工单之上，已接入只读诊断、写动作提议、固定参数快照、人工审批、受控执行、结果复核、幂等控制与数据库检查点。评估控制台、运营看板和管理配置页等 M4 内容尚未接入。
 
 ![M0 登录页](docs/design-preview/m0-login.png)
 
@@ -40,7 +40,7 @@ Browser
        ├─ /api/* 同源代理（转发 Cookie、CSRF 与 Set-Cookie）
        └─ FastAPI / SQLAlchemy / Alembic
             ├─ PostgreSQL 16 + pgvector + pg_trgm
-            └─ 后续：显式工作流与持久化检查点（M3）
+            └─ 显式工作流状态机 + 数据库检查点（无需 LangGraph 运行时）
 ```
 
 - 模块化单体，不拆微服务；业务数据库是唯一事实源。
@@ -49,6 +49,10 @@ Browser
 - Admin 可查看审批队列，但不自动拥有 `approval:decide` 权限。
 - M1 检索采用 `pg_trgm` 词法匹配 + 本地哈希向量重排；向量存储接口已隔离，后续可替换为 pgvector。
 - M2 工单草稿持久化为 `DRAFT`，但不出现在工单列表；确认时与 Case 双向关联在同一事务中完成。
+- M3 只读工具由服务端自动执行并记录审计；写工具只能经 Action/Approval 状态机调用，不提供公开的 `/tools/execute`。
+- Action、Approval 和 ToolExecution 在批准前固定参数哈希；每个 Action 最多一条执行记录，重复批准返回首次执行结果。
+- 工作流使用显式状态机与数据库检查点；检查点缺失时可由 Action/Approval 业务状态重建待审批节点。
+- 工具策略与 Kill Switch 已提供 Admin API；可视化管理界面保留到 M4。
 - MVP 暂不引入 Redis。
 
 ## M0 已实现
@@ -97,6 +101,26 @@ Browser
 3. 切换到王工，在 Case 工作台核对并修改草稿后确认建单；Case 变为“已转工单”，并可通过 `/tickets` 打开详情。
 4. 在工单详情修改优先级、分派处理人、流转状态并添加内部备注；切换到审批人确认只读且看不到内部备注。
 
+## M3 已实现
+
+- 动作识别：员工发起“重置 VPN 证书”或“申请应用访问权限”时，先生成写动作建议；安装类请求不会被误判为权限授予。
+- 只读诊断：写动作前自动调用对应只读工具，记录工具参数、结果摘要与证据，并写入 `tool.read_executed`。
+- 审批材料：Action 固定工具、参数、参数哈希、证据、影响范围、验证方式、回滚方案和 15 分钟有效期；Approval 保存独立参数快照与版本。
+- 审批队列：`/approvals` 支持状态/风险筛选、详情查看、二次确认批准、拒绝原因必填、执行结果和阻断原因展示。
+- 受控执行：批准后经 Tool Gateway 执行 Mock 写工具，支持 `success`、`fail`、`timeout` 三种演练模式；执行成功后再调用只读工具复核。
+- 权限边界：申请人不能审批自己的动作；Admin 只有审批查看权限，没有 `approval:decide`；审批范围同时校验工具与申请人部门。
+- 状态恢复：Action/Approval 状态、参数哈希、Case 状态、工具启停和 Kill Switch 均在执行前复核；满足条件后从 `await_approval` 恢复。
+- 幂等与阻断：同一 Action 只创建一条 ToolExecution；重复批准不重复调用工具；过期、Case 关闭、工具停用或 Kill Switch 开启均阻断执行。
+- Case 工作台：动作卡展示风险、固定参数、证据、验证/回滚方案、审批状态和执行结果；SSE 新增 `action` 事件并关联 `/approvals`。
+- Admin API：`GET/PATCH /api/admin/tools` 管理工具启停与 Mock 模式，`GET/PUT /api/admin/kill-switch` 管理全局写操作暂停。
+
+### M3 演示路径
+
+1. 使用员工账号在 `/chat` 输入“我的 VPN 证书过期了，帮我重置证书”，确认只读诊断后 Case 进入 `AWAITING_APPROVAL`，页面展示固定参数和审批号。
+2. 切换到审批人陈审批，在 `/approvals` 打开待审批动作，核对影响对象、参数哈希、证据、验证与回滚方案后批准。
+3. 回到 Case 工作台，确认 Action/Execution 为 `SUCCEEDED`、只读复核通过、Case 进入 `RESOLVED`，时间线包含提议、审批、执行和验证事件。
+4. 重复批准同一审批，确认返回同一执行结果且不新增 ToolExecution；管理员可通过 Admin API 演练工具停用、执行失败和 Kill Switch 阻断。
+
 ## 本地开发
 
 前端：
@@ -133,16 +157,19 @@ ruff check .
 
 ## 当前验证状态
 
-以下为 2026-11-06 的本机验收结果。
+以下为 2026-11-06 的本机 M3 验收结果。
 
 - `npm run typecheck`：通过。
-- `npm run build`：通过，14 个 App Router 路由成功生成。
-- Next.js 运行时冒烟：`/login` 返回 200；后端不可用时同源代理返回 502。
-- `pytest`：31/31 通过（覆盖检索、ACL、流式回答、引用定位、拒答、文档启停、工单草稿/确认/流转/筛选/只读角色与审计；测试使用 SQLite 内存库）。
-- `ruff check .`：通过（FastAPI 的 `Depends` 默认参数规则 B008 已按框架惯例忽略）。
-- Docker Compose 运行态验收：db/api/web 均健康，`0003` 迁移和 5 份演示知识成功加载；`/login`、`/tickets`、`/tickets/[id]` 与 Case 工作台均返回 200。
+- `npm run build`：通过，App Router 页面与动态路由成功生成。
+- `pytest`：46/46 通过（覆盖检索、ACL、SSE、工单、动作识别、审批权限、过期/自审批/范围阻断、参数哈希、工具启停、Kill Switch、幂等执行、检查点恢复与审计；测试使用 SQLite 内存库）。
+- `ruff check app migrations tests`：通过（FastAPI 的 `Depends` 默认参数规则 B008 已按框架惯例忽略）。
+- Docker Compose 运行态验收：db/api/web 均健康，Alembic 为 `0004_actions_approvals_workflow (head)`，5 份演示知识成功加载。
+- M3 端到端：经 Next 同源代理完成员工提议、只读诊断、审批人批准、Mock 工具执行、只读复核、Case 解决与 `/approvals` / Case 页面 200 验证。
+- M3 幂等：重复批准返回同一 Execution，`tool.executed` 审计仍只有一条。
+- M3 审计：确认存在 `tool.read_executed`、`action.proposed`、`approval.requested`、`approval.approved`、`tool.executing`、`tool.executed`、`action.verified`、`case.resolved` 事件。
+- API/Web 日志：M3 端到端期间无未处理异常。
 - M1 端到端：经 Next 同源代理验证 SSE `step/citation/token/status/done` 流式事件、`[1]` 引用与原文定位、无依据/敏感请求拒答、知识上传后检索和停用、Employee 知识列表 403 与来源 ACL，以及刷新不重复发送。
-- Docker Compose 构建：`docker compose up --build` 成功，API/Web 镜像与运行态无未处理异常。
+- Docker Compose 构建：`docker compose up -d --build` 成功，API/Web 镜像与运行态无未处理异常。
 - 审计不可变：对 `audit_events` 执行 UPDATE 被 PostgreSQL 触发器拒绝。
 - 中文往返：Case 标题创建与读取无误。
 - M2 端到端：经 Next 同源代理验证模糊请求追问、补齐后草稿、Support 确认建单、Case/Ticket 双向关联、列表筛选、字段修改、分派、Approver 只读与 Employee 本人范围。

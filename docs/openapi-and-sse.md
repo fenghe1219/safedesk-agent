@@ -1,6 +1,6 @@
 # SafeDesk API 与 SSE 契约 v0.1
 
-> 状态：M2 已实现；审批与执行接口仍为 M3 设计底稿
+> 状态：M3 已实现（审批、受控执行、检查点与工具治理 API）。评估、看板、用户/Prompt 配置、Case 更新订阅和管理配置页仍为 M4 设计。
 > 目标：覆盖 MVP 页面和状态变化，不提前设计生产级集成  
 > 关联文档：`docs/data-model-and-state-machines.md`、`docs/ia-and-flows.md`
 
@@ -46,7 +46,7 @@
 
 - `message` 面向用户，可安全展示；`details` 只放非敏感结构化信息。
 - 不返回堆栈、SQL、密钥、系统 Prompt 或内部策略全文。
-- 常见错误码：`UNAUTHENTICATED`、`FORBIDDEN`、`NOT_FOUND`、`INVALID_STATE`、`VALIDATION_ERROR`、`APPROVAL_REQUIRED`、`APPROVAL_EXPIRED`、`APPROVAL_CONFLICT`、`TYPE_CONFLICT`、`TOOL_DISABLED`、`KILL_SWITCH_ON`、`RATE_LIMITED`、`MODEL_UNAVAILABLE`、`RETRIEVAL_TIMEOUT`。
+- 常见错误码：`UNAUTHENTICATED`、`FORBIDDEN`、`NOT_FOUND`、`INVALID_STATE`、`VALIDATION_ERROR`、`APPROVAL_REQUIRED`、`APPROVAL_EXPIRED`、`TYPE_CONFLICT`、`VERSION_CONFLICT`、`SELF_APPROVAL_FORBIDDEN`、`OUT_OF_SCOPE`、`CASE_CLOSED`、`TOOL_DISABLED`、`KILL_SWITCH_ENABLED`、`TOOL_FAILED`、`TOOL_TIMEOUT`、`VERIFICATION_FAILED`、`RATE_LIMITED`、`MODEL_UNAVAILABLE`、`RETRIEVAL_TIMEOUT`。
 
 ### 1.5 分页、筛选与并发
 
@@ -73,9 +73,11 @@
 | --- | --- | --- | --- |
 | GET | `/api/cases` | 认证 | 我的/授权范围 Case 列表 |
 | POST | `/api/cases` | Employee+ | 创建 Case |
-| GET | `/api/cases/{id}` | 有权限 | Case 工作台聚合数据 |
+| GET | `/api/cases/{id}` | 有权限 | Case 摘要与当前状态 |
 | GET | `/api/cases/{id}/messages` | 有权限 | 分页加载历史消息 |
 | POST | `/api/cases/{id}/messages` | 有权限 | 发送消息，返回 SSE |
+| GET | `/api/cases/{id}/action` | 有权限 | 最新 Action、Approval、Execution 与阻断原因 |
+| GET | `/api/cases/{id}/checkpoints` | 有权限 | 工作流检查点 |
 | POST | `/api/cases/{id}/stop` | 有权限 | 停止当前生成 |
 | POST | `/api/cases/{id}/retry` | 有权限 | 重试上一条失败/停止回答 |
 | POST | `/api/cases/{id}/close` | 有权限 | 关闭 Case |
@@ -83,6 +85,8 @@
 | GET | `/api/cases/{id}/timeline` | 有权限 | 安全投影后的时间线 |
 | GET | `/api/cases/{id}/events` | 有权限 | 跨角色 Case 更新 SSE |
 | POST | `/api/cases/{id}/messages/{message_id}/feedback` | 有权限 | 回答反馈 |
+
+M3 已实现 Case 列表、创建、详情、消息、时间线、Action 与检查点接口；`stop/retry/close/reopen/events/feedback` 仍为 M4 设计。
 
 ### 2.3 知识库
 
@@ -123,12 +127,15 @@
 
 | 方法 | 路径 | 角色 | 说明 |
 | --- | --- | --- | --- |
-| GET | `/api/approvals` | Approver/Admin 只读 | 审批队列 |
-| GET | `/api/approvals/{id}` | 审批范围 | 审批详情与材料 |
-| POST | `/api/approvals/{action_id}/approve` | Approver | 批准，幂等 |
-| POST | `/api/approvals/{action_id}/reject` | Approver | 拒绝，原因必填 |
+| GET | `/api/approvals` | Approver/Admin（`approval:view`） | 审批队列，可按状态筛选 |
+| GET | `/api/approvals/{approval_id}` | 审批范围 | 审批详情、证据、执行结果与阻断原因 |
+| POST | `/api/approvals/{approval_id}/approve` | Approver（`approval:decide`） | 批准并恢复执行，幂等 |
+| POST | `/api/approvals/{approval_id}/reject` | Approver（`approval:decide`） | 拒绝，原因必填 |
 
-不提供公开 `/tools/execute`；工具只能由工作流内部经 Tool Gateway 调用。
+- 路径参数是 `approval_id`，不是 Action ID。
+- 申请人不能审批自己的动作；Admin 默认只有查看权限，没有 `approval:decide`。
+- 审批范围同时校验工具白名单和申请人部门。
+- 不提供公开 `/tools/execute`；工具只能由工作流内部经 Tool Gateway 调用。
 
 ### 2.6 审计、评估、看板、配置
 
@@ -148,12 +155,16 @@
 | GET | `/api/admin/users` | Admin | 用户与角色 |
 | PATCH | `/api/admin/users/{id}` | Admin | 调整角色/部门 |
 | GET | `/api/admin/tools` | Admin | 工具白名单与策略 |
-| PATCH | `/api/admin/tools/{name}` | Admin | 启停、风险、审批范围 |
+| PATCH | `/api/admin/tools/{name}` | Admin | 启停工具、设置 Mock 模式 |
+| GET | `/api/admin/kill-switch` | Admin | 读取全局写操作暂停状态 |
+| PUT | `/api/admin/kill-switch` | Admin | 开启/关闭 Kill Switch 并记录原因 |
 | GET | `/api/admin/prompts` | Admin | Prompt 版本 |
 | POST | `/api/admin/prompts` | Admin | 新建版本 |
 | GET | `/api/admin/settings` | Admin | 当前系统配置 |
 | PATCH | `/api/admin/settings/{key}` | Admin | 配置变更 |
 | POST | `/api/admin/reset-demo` | Admin | 一键重置演示数据 |
+
+`/api/admin/tools` 与 `/api/admin/kill-switch` 已实现；其余 Admin、评估、看板和审计端点仍为 M4 设计。
 
 ## 3. 关键请求与响应
 
@@ -165,80 +176,136 @@
     "id": "user_1024",
     "name": "林晓",
     "email": "lin.xiao@example.test",
-    "role": "Employee",
+    "role": "employee",
+    "role_label": "员工",
     "department": "产品部"
   },
   "permissions": {
-    "can_create_case": true,
-    "can_view_tickets": true,
-    "can_approve": false,
-    "can_manage_knowledge": false
+    "case:create": true,
+    "case:read": true,
+    "case:read_all": false,
+    "ticket:view": true,
+    "ticket:manage": false,
+    "approval:view": false,
+    "approval:decide": false,
+    "knowledge:view": false,
+    "knowledge:manage": false,
+    "eval:manage": false,
+    "audit:view": false,
+    "dashboard:view": false,
+    "settings:manage": false
   },
   "navigation": [
-    { "key": "chat", "label": "新建问题", "href": "/chat" },
-    { "key": "cases", "label": "我的 Case", "href": "/chat" }
+    { "key": "chat", "label": "工作台", "href": "/chat", "icon": "workbench" },
+    { "key": "tickets", "label": "我的工单", "href": "/tickets", "icon": "ticket" }
   ],
   "demo_mode": true,
-  "csrf_token": "csrf_01J..."
+  "csrf_token": "csrf_01J...",
+  "default_path": "/chat"
 }
 ```
 
-### 3.2 Case 工作台 `GET /api/cases/{id}`
+### 3.2 Case 摘要 `GET /api/cases/{id}`
 
 ```json
 {
-  "case": {
-    "id": "case_01J...",
-    "title": "VPN 无法连接，需要重置证书",
-    "status": "AWAITING_APPROVAL",
-    "status_label": "等待审批",
-    "phase": "approval",
-    "requester": { "id": "user_1024", "name": "林晓" },
-    "assignee": null,
-    "current_node": "await_approval",
-    "created_at": "2026-11-03T09:30:00+08:00",
-    "updated_at": "2026-11-03T09:35:10+08:00"
-  },
-  "messages": [],
-  "active_card": { "type": "action", "id": "act_01J..." },
-  "evidence": [],
-  "ticket": null,
-  "action": {
-    "id": "act_01J...",
-    "tool_name": "reset_vpn_certificate",
-    "tool_label": "重置 VPN 证书",
-    "risk_level": "HIGH",
-    "status": "AWAITING_APPROVAL",
-    "rationale": "只读检查显示 VPN 证书已过期。",
-    "impact": "仅影响当前用户 user_1024",
-    "expires_at": "2026-11-03T09:45:00+08:00",
-    "args": {
-      "user_id": "user_1024",
-      "reason": "证书已过期，只读检查确认"
-    },
-    "args_hash": "sha256:..."
-  },
-  "approval": {
-    "id": "apr_01J...",
-    "status": "PENDING",
-    "requested_at": "2026-11-03T09:35:10+08:00"
-  },
-  "timeline": [],
-  "permissions": {
-    "can_approve": false,
-    "can_reject": false,
-    "can_create_ticket": false,
-    "can_retry": false
-  }
+  "id": "case_01J...",
+  "title": "VPN 无法连接，需要重置证书",
+  "status": "AWAITING_APPROVAL",
+  "status_label": "等待审批",
+  "phase": "approval",
+  "requester_id": "user_1024",
+  "current_node": "await_approval",
+  "intent": "action_approval",
+  "ticket_id": null,
+  "action_id": "act_01J...",
+  "created_at": "2026-11-03T09:30:00+08:00",
+  "updated_at": "2026-11-03T09:35:10+08:00"
 }
 ```
 
-说明：
+消息、时间线、动作和检查点分别通过独立端点加载，避免 Case 主接口返回过大的聚合对象。
 
-- `messages`、`evidence`、`timeline` 在生产中可单独分页；首屏返回最近一页。
-- `active_card` 只指向一个主卡，避免前端猜当前该突出什么。
-- `action.args` 对非审批人可只返回人类可读摘要；完整参数需要审批范围权限。
-- 员工与审批人请求同一路径时，服务端裁剪字段，不返回无权查看的内部审计内容。
+### 3.2.1 关联动作 `GET /api/cases/{id}/action`
+
+```json
+{
+  "id": "act_01J...",
+  "case_id": "case_01J...",
+  "tool_name": "reset_vpn_certificate",
+  "tool_label": "重置 VPN 证书",
+  "tool_type": "WRITE",
+  "risk_level": "HIGH",
+  "risk_label": "高风险",
+  "status": "AWAITING_APPROVAL",
+  "status_label": "等待审批",
+  "args": {
+    "user_id": "user_1024",
+    "reason": "我的 VPN 证书过期了，帮我重置证书"
+  },
+  "args_hash": "sha256:...",
+  "rationale": "只读检查显示 VPN 证书已过期，账号本身处于启用状态。",
+  "impact": "仅影响当前用户 林晓（user_1024）；动作范围限定为「重置 VPN 证书」。",
+  "verification_plan": "执行完成后调用只读工具复核证书状态，并记录验证结果。",
+  "rollback_plan": "如执行结果异常，停止后续自动操作并转工单由桌面支持人工恢复。",
+  "evidence_ids": ["chunk:...", "audit:..."],
+  "requested_by_id": "user_1024",
+  "requested_by_name": "林晓",
+  "expires_at": "2026-11-03T09:50:10+08:00",
+  "version": 1,
+  "created_at": "2026-11-03T09:35:10+08:00",
+  "updated_at": "2026-11-03T09:35:10+08:00",
+  "case_status": "AWAITING_APPROVAL",
+  "case_status_label": "等待审批",
+  "approval": {
+    "id": "apr_01J...",
+    "action_id": "act_01J...",
+    "status": "PENDING",
+    "status_label": "待审批",
+    "args_hash": "sha256:...",
+    "approver_id": null,
+    "approver_name": null,
+    "decision_reason": null,
+    "requested_at": "2026-11-03T09:35:10+08:00",
+    "expires_at": "2026-11-03T09:50:10+08:00",
+    "decided_at": null,
+    "version": 1
+  },
+  "execution": null,
+  "permissions": { "can_view": true, "can_decide": false },
+  "blockers": []
+}
+```
+
+- `blockers` 汇总权限、自审批、过期、Case 关闭、参数哈希、工具停用和 Kill Switch 等阻断原因。
+- `execution` 在批准并开始执行后返回；同一 Action 最多一条执行记录。
+- 没有 Action 的 Case 返回 `404 NOT_FOUND`。
+
+### 3.2.2 检查点 `GET /api/cases/{id}/checkpoints`
+
+```json
+{
+  "items": [
+    {
+      "id": "chk_01J...",
+      "case_id": "case_01J...",
+      "thread_id": "case_01J...",
+      "sequence": 2,
+      "node": "await_approval",
+      "status": "waiting",
+      "workflow_version": 1,
+      "state": {
+        "action_id": "act_01J...",
+        "approval_id": "apr_01J...",
+        "expires_at": "2026-11-03T09:50:10+08:00"
+      },
+      "created_at": "2026-11-03T09:35:10+08:00"
+    }
+  ]
+}
+```
+
+检查点缺失但 Action 仍待审批时，读取动作会从业务状态重建 `await_approval` 检查点。
 
 ### 3.3 发送消息 `POST /api/cases/{id}/messages`
 
@@ -304,7 +371,7 @@ POST /api/cases/{id}/retry
 批准：
 
 ```json
-POST /api/approvals/act_01J.../approve
+POST /api/approvals/apr_01J.../approve
 {
   "reason": "已核对用户身份和证书状态",
   "expected_args_hash": "sha256:...",
@@ -315,7 +382,7 @@ POST /api/approvals/act_01J.../approve
 拒绝：
 
 ```json
-POST /api/approvals/act_01J.../reject
+POST /api/approvals/apr_01J.../reject
 {
   "reason": "影响对象与工单不一致，请重新核对",
   "approval_version": 1
@@ -323,8 +390,9 @@ POST /api/approvals/act_01J.../reject
 ```
 
 - 批准前服务端再次校验 `expected_args_hash`；不匹配返回 `409 TYPE_CONFLICT`。
-- 审批人不能是申请人；不满足返回 `403 FORBIDDEN`。
-- 重复提交返回首次结果或 `APPROVAL_CONFLICT`，不重复执行。
+- 审批人不能是申请人；不满足返回 `403 SELF_APPROVAL_FORBIDDEN`。
+- 审批范围不匹配返回 `403 OUT_OF_SCOPE`；Case 已关闭返回 `409 CASE_CLOSED`。
+- 重复批准已完成的审批返回首次 Execution，不重复调用工具；审批版本已变化返回 `409 VERSION_CONFLICT`。
 
 ### 3.7 工单更新与状态流转
 
@@ -389,9 +457,9 @@ data: {"text":"根据内部文档，"}
 | `token` | `text` | 流式追加回答文本 |
 | `citation` | `index`、`chunk_id`、`doc_id`、`title`、`version`、`page`、`section`、`quote` | 生成引用面板 |
 | `ticket_draft` | 完整 `TicketOut` 投影，另含 `ticket_id` | 显示或更新工单草稿卡 |
-| `action` | `action_id`、`status`、`tool_name`、`tool_label`、`risk_level`、`expires_at` | 显示动作卡 |
+| `action` | `action`（完整 Action 投影）、`approval`（完整审批投影）、`case`（Case 摘要） | 一次更新动作卡、审批状态和 Case 状态 |
 | `status` | `case_status`、`status_label`、`phase` | 更新 Case 状态 |
-| `done` | `case_status`、`message_id`、`request_id` | 终止事件，保存消息 |
+| `done` | `case_status`、`message_id`、`request_id`、`refused`、`evidence_count`；有动作时含 `action_id`，有草稿时含 `ticket_id` | 终止事件，保存消息并关联对象 |
 | `error` | `code`、`message`、`retryable`、`request_id` | 终止事件，保留已有内容 |
 | `heartbeat` | `ts` | 保持长连接，前端忽略内容 |
 
@@ -411,13 +479,13 @@ event: citation
 data: {"index":1,"chunk_id":"chunk_vpn_02","doc_id":"doc_vpn","title":"VPN 使用与排障指南","version":"v3","page":3,"section":"证书失效","quote":"当证书过期时，客户端会提示证书无效。"}
 
 event: action
-data: {"action_id":"act_01J...","status":"AWAITING_APPROVAL","tool_name":"reset_vpn_certificate","tool_label":"重置 VPN 证书","risk_level":"HIGH","expires_at":"2026-11-03T09:45:00+08:00"}
+data: {"action":{"id":"act_01J...","case_id":"case_01J...","tool_name":"reset_vpn_certificate","tool_label":"重置 VPN 证书","tool_type":"WRITE","risk_level":"HIGH","risk_label":"高风险","status":"AWAITING_APPROVAL","status_label":"等待审批","args":{"user_id":"user_1024","reason":"我的 VPN 证书过期了，帮我重置证书"},"args_hash":"sha256:...","rationale":"只读检查显示 VPN 证书已过期，账号本身处于启用状态。","impact":"仅影响当前用户 林晓（user_1024）。","verification_plan":"执行完成后调用只读工具复核证书状态。","rollback_plan":"异常时转工单由桌面支持人工恢复。","evidence_ids":["chunk:...","audit:..."],"requested_by_id":"user_1024","requested_by_name":"林晓","expires_at":"2026-11-03T09:50:10+08:00","version":1,"created_at":"2026-11-03T09:35:10+08:00","updated_at":"2026-11-03T09:35:10+08:00"},"approval":{"id":"apr_01J...","action_id":"act_01J...","status":"PENDING","status_label":"待审批","args_hash":"sha256:...","approver_id":null,"approver_name":null,"decision_reason":null,"requested_at":"2026-11-03T09:35:10+08:00","expires_at":"2026-11-03T09:50:10+08:00","decided_at":null,"version":1},"case":{"id":"case_01J...","title":"VPN 无法连接，需要重置证书","status":"AWAITING_APPROVAL","status_label":"等待审批","phase":"approval","requester_id":"user_1024","current_node":"await_approval","intent":"action_approval","ticket_id":null,"action_id":"act_01J...","created_at":"2026-11-03T09:30:00+08:00","updated_at":"2026-11-03T09:35:10+08:00"}}
 
 event: status
 data: {"case_status":"AWAITING_APPROVAL","status_label":"等待审批","phase":"approval"}
 
 event: done
-data: {"case_status":"AWAITING_APPROVAL","message_id":"msg_01J...","request_id":"req_01J..."}
+data: {"case_status":"AWAITING_APPROVAL","message_id":"msg_01J...","request_id":"req_01J...","refused":false,"evidence_count":2,"action_id":"act_01J..."}
 ```
 
 ### 4.4 流式规则
@@ -438,7 +506,7 @@ data: {"case_status":"AWAITING_APPROVAL","message_id":"msg_01J...","request_id":
 | `token` | 追加到当前回答卡，保持布局稳定 |
 | `citation` | 追加到引用面板，按 `index` 排序 |
 | `ticket_draft` | 在主卡区展示工单草稿，替换旧草稿摘要 |
-| `action` | 在主卡区展示动作卡；若等待审批，显示有效期 |
+| `action` | 用 `action` 更新动作卡、用 `approval` 更新审批状态、用 `case` 更新 Case 状态；有查看权限时链接到 `/approvals` |
 | `status` | 更新 Case 状态标签和五阶段进度 |
 | `done` | 结束加载态，开放反馈、停止/重试按钮状态 |
 | `error` | 显示内联错误和重试；保留部分回答并标注未完成 |
@@ -473,9 +541,19 @@ data: {"case_status":"AWAITING_APPROVAL","message_id":"msg_01J...","request_id":
 
 确认建单后 `done` 事件同时返回 `ticket_id`，Case 端点随后返回 `status = TICKET_OPEN` 与同一个 `ticket_id`。
 
-## 5. Case 更新订阅 SSE
+### 4.7 M3 动作载荷
 
-`GET /api/cases/{id}/events` 用于跨角色实时更新，例如审批人在另一个浏览器批准后，员工页面自动从“等待审批”切到“执行中”。
+`action` 事件不再返回扁平摘要，而是返回三个服务端投影：
+
+- `action`: 工具、固定参数、参数哈希、证据、影响范围、验证/回滚方案、有效期和版本。
+- `approval`: 审批 ID、状态、参数快照、审批人、决定原因和版本。
+- `case`: 最新 Case 摘要，前端无需再猜测状态。
+
+Case 工作台收到事件后直接替换动作卡；`done.action_id` 用于确认动作已持久化。后续聊天不会把仍在等待审批的 Case 覆盖成 `ANSWERED`。
+
+## 5. Case 更新订阅 SSE（M4 设计）
+
+`GET /api/cases/{id}/events` 计划用于跨角色实时更新，例如审批人在另一个浏览器批准后，员工页面自动从“等待审批”切到“执行中”。该端点尚未在 M3 实现，当前页面通过刷新和动作详情接口获取审批后状态。
 
 ### 5.1 事件类型
 
@@ -505,7 +583,11 @@ data: {"case_status":"AWAITING_APPROVAL","message_id":"msg_01J...","request_id":
 | 审批过期 | 409 | `APPROVAL_EXPIRED` | 显示过期并给恢复路径 |
 | 参数哈希不匹配 | 409 | `TYPE_CONFLICT` | 阻止执行，要求重新审批 |
 | 工具禁用 | 409 | `TOOL_DISABLED` | 显示策略状态，不执行 |
-| Kill Switch | 409 | `KILL_SWITCH_ON` | 显示全局暂停原因 |
+| Kill Switch | 409 | `KILL_SWITCH_ENABLED` | 显示全局暂停原因 |
+| Case 已关闭 | 409 | `CASE_CLOSED` | 阻止执行并要求重新发起 |
+| 审批人越权 | 403 | `OUT_OF_SCOPE` | 不显示决定入口 |
+| 申请人自审批 | 403 | `SELF_APPROVAL_FORBIDDEN` | 不显示决定入口 |
+| 审批版本冲突 | 409 | `VERSION_CONFLICT` | 刷新审批详情后重试 |
 | 模型不可用 | 503 | `MODEL_UNAVAILABLE` | 保留证据，允许检索/建单 |
 | 检索超时 | 504 | `RETRIEVAL_TIMEOUT` | 可重试，不编造回答 |
 | 请求过频 | 429 | `RATE_LIMITED` | 显示等待时间 |

@@ -7,6 +7,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiRequestError, clientRequest } from "@/lib/api";
 import { consumeSSE } from "@/lib/sse";
 import type {
+  ActionRecord,
+  Approval,
+  CaseAction,
   CaseDetail,
   ChatMessage,
   KnowledgeLocator,
@@ -17,6 +20,7 @@ import type {
   TimelineEvent
 } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
+import { ActionCard } from "./action-card";
 import { Icon } from "./icons";
 import { StatusBadge } from "./status-badge";
 import { TicketDraftCard } from "./ticket-draft-card";
@@ -41,21 +45,25 @@ export function CaseWorkspace({
   initialMessages,
   initialTimeline,
   initialTicketDraft,
+  initialAction,
   csrfToken,
   userName,
   canSend,
   canAutoStart,
-  canManageTickets
+  canManageTickets,
+  canViewApprovals
 }: {
   caseData: CaseDetail;
   initialMessages: ChatMessage[];
   initialTimeline: TimelineEvent[];
   initialTicketDraft: TicketDraft | null;
+  initialAction: CaseAction | null;
   csrfToken: string;
   userName: string;
   canSend: boolean;
   canAutoStart: boolean;
   canManageTickets: boolean;
+  canViewApprovals: boolean;
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -72,6 +80,7 @@ export function CaseWorkspace({
   const [streamCitations, setStreamCitations] = useState<MessageCitation[]>([]);
   const [lastRefused, setLastRefused] = useState(caseData.status === "REFUSED");
   const [ticketDraft, setTicketDraft] = useState<TicketDraft | null>(initialTicketDraft);
+  const [action, setAction] = useState<CaseAction | null>(initialAction);
   const [confirmedTicket, setConfirmedTicket] = useState<TicketDetail | null>(null);
   const [ticketId, setTicketId] = useState<string | null>(caseData.ticket_id);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +98,10 @@ export function CaseWorkspace({
   useEffect(() => {
     setTimeline(initialTimeline);
   }, [initialTimeline]);
+
+  useEffect(() => {
+    setAction(initialAction);
+  }, [initialAction]);
 
   useEffect(() => {
     setTicketId(caseData.ticket_id);
@@ -221,6 +234,21 @@ export function CaseWorkspace({
           setLastRefused(Boolean(value.refused));
         } else if (frame.event === "ticket_draft") {
           setTicketDraft(frame.data as unknown as TicketDraft);
+        } else if (frame.event === "action") {
+          const value = frame.data as {
+            action: ActionRecord;
+            approval: Approval;
+            case: { status: string; status_label: string };
+          };
+          setAction({
+            ...value.action,
+            case_status: value.case.status,
+            case_status_label: value.case.status_label,
+            approval: value.approval,
+            execution: null,
+            permissions: { can_view: true, can_decide: false },
+            blockers: []
+          });
         } else if (frame.event === "error") {
           const value = frame.data as { message?: string };
           setError(value.message ?? "生成回答失败，请稍后重试");
@@ -438,6 +466,10 @@ export function CaseWorkspace({
             </div>
           </div>
 
+          {action && (
+            <ActionCard action={action} canViewApprovals={canViewApprovals} />
+          )}
+
           {ticketDraft && (
             <TicketDraftCard
               draft={ticketDraft}
@@ -595,14 +627,38 @@ export function CaseWorkspace({
                   Ticket <span className="float-right">待确认</span>
                 </div>
               )}
-              {["Action", "Approval"].map((item) => (
-                <div
-                  key={item}
-                  className="rounded-control border border-dashed border-line-strong px-3 py-2 text-[10px] text-ink-tertiary"
-                >
-                  {item} <span className="float-right">M3</span>
+              {action ? (
+                <>
+                  {canViewApprovals ? (
+                    <Link
+                      href={`/approvals?approval=${encodeURIComponent(action.approval.id)}`}
+                      className="rounded-control border border-brand-border bg-brand-soft px-3 py-2 text-[10px] font-medium text-brand transition-colors hover:border-brand"
+                    >
+                      Action <span className="float-right">{action.status_label}</span>
+                    </Link>
+                  ) : (
+                    <div className="rounded-control border border-line bg-subtle px-3 py-2 text-[10px] text-ink-secondary">
+                      Action <span className="float-right">{action.status_label}</span>
+                    </div>
+                  )}
+                  {canViewApprovals ? (
+                    <Link
+                      href={`/approvals?approval=${encodeURIComponent(action.approval.id)}`}
+                      className="rounded-control border border-brand-border bg-brand-soft px-3 py-2 text-[10px] font-medium text-brand transition-colors hover:border-brand"
+                    >
+                      Approval <span className="float-right">{action.approval.status_label}</span>
+                    </Link>
+                  ) : (
+                    <div className="rounded-control border border-line bg-subtle px-3 py-2 text-[10px] text-ink-secondary">
+                      Approval <span className="float-right">{action.approval.status_label}</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="rounded-control border border-dashed border-line-strong px-3 py-2 text-[10px] text-ink-tertiary">
+                  Action / Approval <span className="float-right">未生成</span>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </aside>

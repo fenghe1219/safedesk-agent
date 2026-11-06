@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     csrf_cookie_name: str = "sd_csrf"
     session_cookie_secure: bool = False
     session_ttl_hours: int = 8
+    approval_ttl_seconds: int = 900
     cors_origins: list[str] = ["http://localhost:3000"]
     log_level: str = "INFO"
 

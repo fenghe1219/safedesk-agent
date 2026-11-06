@@ -6,7 +6,13 @@ import { AccessDenied } from "@/components/access-denied";
 import { CaseProgress } from "@/components/case-progress";
 import { CaseWorkspace } from "@/components/case-workspace";
 import { StatusBadge } from "@/components/status-badge";
-import { getCase, getCaseMessages, getCaseTimeline, getTicketDraft } from "@/lib/server-api";
+import {
+  getCase,
+  getCaseAction,
+  getCaseMessages,
+  getCaseTimeline,
+  getTicketDraft
+} from "@/lib/server-api";
 import { can, requireMe } from "@/lib/page-guard";
 import { formatDateTime } from "@/lib/utils";
 
@@ -28,11 +34,13 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
   }
 
   const canViewTickets = can(me, "ticket:view");
-  const [caseData, timeline, messages, ticketDraft] = await Promise.all([
+  const canViewApprovals = can(me, "approval:view");
+  const [caseData, timeline, messages, ticketDraft, action] = await Promise.all([
     getCase(id),
     getCaseTimeline(id),
     getCaseMessages(id),
-    canViewTickets ? getTicketDraft(id) : Promise.resolve(null)
+    canViewTickets ? getTicketDraft(id) : Promise.resolve(null),
+    getCaseAction(id)
   ]);
   if (!caseData) notFound();
 
@@ -65,7 +73,7 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <span className="sd-chip">M2 · 分诊与工单</span>
+            <span className="sd-chip">M3 · 审批与受控执行</span>
           </div>
         </div>
 
@@ -79,11 +87,13 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
         initialMessages={messages.items}
         initialTimeline={timeline}
         initialTicketDraft={ticketDraft}
+        initialAction={action}
         csrfToken={me.csrf_token}
         userName={me.user.name}
         canSend={can(me, "case:read")}
         canAutoStart={me.user.id === caseData.requester_id}
         canManageTickets={can(me, "ticket:manage")}
+        canViewApprovals={canViewApprovals}
       />
     </div>
   );

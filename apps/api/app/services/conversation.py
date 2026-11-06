@@ -12,6 +12,13 @@ from app.models.knowledge import KnowledgeDocument
 from app.models.message import Citation, Message
 from app.models.user import User
 from app.schemas.message import CitationOut, MessageOut
+from app.services.action_service import (
+    create_action_proposal,
+    detect_action_intent,
+    get_active_action_for_case,
+    to_action_out,
+    to_approval_out,
+)
 from app.services.answer import (
     MODEL_VERSION,
     PROMPT_VERSION,
@@ -20,13 +27,14 @@ from app.services.answer import (
     sensitive_refusal,
 )
 from app.services.audit import record_event
-from app.services.case_service import CASE_PHASES, CASE_STATUS_LABELS
+from app.services.case_service import CASE_PHASES, CASE_STATUS_LABELS, to_case_out
 from app.services.retrieval import retrieve_chunks
 from app.services.ticket_service import (
     ticket_draft_payload,
     to_ticket_out,
     upsert_ticket_draft,
 )
+from app.services.tools import call_read_tool
 from app.services.triage import (
     asks_for_ticket,
     build_followup_prompt,
@@ -146,10 +154,58 @@ async def process_message(
 
     hits = await retrieve_chunks(db, normalized, user, limit=5)
     plan = build_answer(normalized, hits)
+    action = None
+    approval = None
+    diagnostic = None
+    if user.id == case.requester_id and sensitive_refusal(normalized) is None:
+        intent = detect_action_intent(normalized, case)
+        if intent is not None:
+            diagnostic = await call_read_tool(
+                db,
+                tool_name=intent.diagnostic_tool,
+                raw_args=intent.diagnostic_args,
+                user=user,
+                case=case,
+                request_id=request_id,
+            )
+            action, approval = await create_action_proposal(
+                db,
+                case=case,
+                user=user,
+                intent=intent,
+                diagnostic=diagnostic,
+                evidence_ids=[
+                    f"chunk:{item.chunk.id}" for item in plan.citations
+                ],
+                request_id=request_id,
+            )
+    active_action = (
+        action
+        if action is not None
+        else await get_active_action_for_case(db, case.id)
+    )
     triage_draft = None
     ticket = None
     triage_missing = False
-    if _should_attempt_triage(case=case, content=normalized, plan=plan):
+    if action is not None:
+        action_parts = [diagnostic.summary if diagnostic else "已完成只读诊断。"]
+        if plan.content and not plan.refused:
+            action_parts.append(plan.content)
+        action_parts.append(
+            f"已生成「{action.tool_label}」动作建议（审批号 {approval.id}）。"
+            "影响对象、参数和有效期已经固定，必须由审批人确认后才会执行；"
+            "审批前不会调用写工具。"
+        )
+        effective_plan = AnswerPlan(
+            content="\n\n".join(action_parts),
+            citations=plan.citations,
+            refused=False,
+            intent="action_approval",
+            evidence_count=len(plan.citations),
+        )
+    elif active_action is None and _should_attempt_triage(
+        case=case, content=normalized, plan=plan
+    ):
         triage_draft = build_triage(await _case_user_texts(db, case.id))
         if triage_draft.missing_fields:
             triage_missing = True
@@ -256,14 +312,24 @@ async def process_message(
         if triage_missing:
             case.status = "NEEDS_INPUT"
             case.current_node = "ticket_triage"
+    elif active_action is not None:
+        case.current_node = case.current_node or "await_approval"
     else:
         case.status = "REFUSED" if effective_plan.refused else "ANSWERED"
         case.current_node = "refused" if effective_plan.refused else "answer"
-    case.intent = effective_plan.intent
+    if active_action is None:
+        case.intent = effective_plan.intent
     case.updated_at = utcnow()
     await db.commit()
 
     ticket_event = ticket_draft_payload(await to_ticket_out(db, ticket)) if ticket else None
+    action_event = None
+    if action is not None and approval is not None:
+        action_event = {
+            "action": (await to_action_out(db, action)).model_dump(mode="json"),
+            "approval": (await to_approval_out(db, approval)).model_dump(mode="json"),
+            "case": to_case_out(case).model_dump(mode="json"),
+        }
     events = _build_events(
         assistant_message,
         effective_plan,
@@ -274,6 +340,7 @@ async def process_message(
         phase=CASE_PHASES.get(case.status, "solution"),
         ticket_event=ticket_event,
         triage=triage_draft is not None,
+        action_event=action_event,
     )
     return Exchange(
         user_message=user_message,
@@ -295,6 +362,7 @@ def _build_events(
     phase: str,
     ticket_event: dict[str, Any] | None,
     triage: bool,
+    action_event: dict[str, Any] | None,
 ) -> list[SSEEvent]:
     events: list[SSEEvent] = [
         SSEEvent(
@@ -340,6 +408,30 @@ def _build_events(
             )
         )
 
+    if action_event is not None:
+        events.append(
+            SSEEvent(
+                "step",
+                {
+                    "name": "diagnose",
+                    "label": "已执行只读诊断工具",
+                    "phase": phase,
+                    "status": "complete",
+                },
+            )
+        )
+        events.append(
+            SSEEvent(
+                "step",
+                {
+                    "name": "approval",
+                    "label": "已生成动作建议，等待人工审批",
+                    "phase": phase,
+                    "status": "complete",
+                },
+            )
+        )
+
     for citation, chunk in zip(citations, plan.citations, strict=False):
         events.append(
             SSEEvent(
@@ -364,6 +456,8 @@ def _build_events(
 
     if ticket_event is not None:
         events.append(SSEEvent("ticket_draft", ticket_event))
+    if action_event is not None:
+        events.append(SSEEvent("action", action_event))
 
     events.append(
         SSEEvent(
@@ -384,6 +478,8 @@ def _build_events(
     }
     if ticket_event is not None:
         done_payload["ticket_id"] = ticket_event["ticket_id"]
+    if action_event is not None:
+        done_payload["action_id"] = action_event["action"]["id"]
     events.append(
         SSEEvent(
             "done",

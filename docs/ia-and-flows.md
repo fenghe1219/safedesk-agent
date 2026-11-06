@@ -1,6 +1,6 @@
 # SafeDesk 信息架构与核心流程 v0.1
 
-> 状态：设计底稿，待进入实现前评审  
+> 状态：M0–M3 已实现；评估、看板与完整配置页面仍为 M4 设计
 > 目标：把“知识问答、工单分诊、审批执行”收敛到同一个 Case 主线上  
 > 关联文档：`docs/design-system.md`、`docs/data-model-and-state-machines.md`、`docs/openapi-and-sse.md`
 

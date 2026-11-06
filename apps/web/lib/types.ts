@@ -35,6 +35,7 @@ export interface CaseSummary {
   current_node: string;
   intent: string | null;
   ticket_id: string | null;
+  action_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -224,6 +225,142 @@ export interface TicketAssignee {
 
 export interface TicketAssigneeListResponse {
   items: TicketAssignee[];
+}
+
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
+export type ActionStatus =
+  | "PROPOSED"
+  | "AWAITING_APPROVAL"
+  | "APPROVED"
+  | "EXECUTING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "REJECTED"
+  | "EXPIRED"
+  | "CANCELLED";
+export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "CANCELLED";
+
+export interface ToolExecution {
+  id: string;
+  action_id: string;
+  tool_name: string;
+  status: string;
+  idempotency_key: string;
+  args_hash: string;
+  output: Record<string, unknown>;
+  result_summary: string;
+  verification: Record<string, unknown>;
+  error_code: string | null;
+  error_message: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface Approval {
+  id: string;
+  action_id: string;
+  status: ApprovalStatus;
+  status_label: string;
+  args_hash: string;
+  approver_id: string | null;
+  approver_name: string | null;
+  decision_reason: string | null;
+  requested_at: string;
+  expires_at: string;
+  decided_at: string | null;
+  version: number;
+}
+
+export interface ActionRecord {
+  id: string;
+  case_id: string;
+  tool_name: string;
+  tool_label: string;
+  tool_type: "READ" | "WRITE";
+  risk_level: RiskLevel;
+  risk_label: string;
+  status: ActionStatus;
+  status_label: string;
+  args: Record<string, unknown>;
+  args_hash: string;
+  rationale: string;
+  impact: string;
+  verification_plan: string;
+  rollback_plan: string;
+  evidence_ids: string[];
+  requested_by_id: string;
+  requested_by_name: string;
+  expires_at: string;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CaseAction extends ActionRecord {
+  case_status: string;
+  case_status_label: string;
+  approval: Approval;
+  execution: ToolExecution | null;
+  permissions: Record<string, boolean>;
+  blockers: string[];
+}
+
+export interface ApprovalListItem {
+  id: string;
+  action_id: string;
+  case_id: string;
+  case_title: string;
+  requester_id: string;
+  requester_name: string;
+  tool_name: string;
+  tool_label: string;
+  risk_level: RiskLevel;
+  risk_label: string;
+  impact: string;
+  status: ApprovalStatus;
+  status_label: string;
+  requested_at: string;
+  expires_at: string;
+  decided_at: string | null;
+  can_decide: boolean;
+}
+
+export interface ApprovalDetail {
+  approval: Approval;
+  action: ActionRecord;
+  case: CaseSummary;
+  execution: ToolExecution | null;
+  timeline: TimelineEvent[];
+  permissions: Record<string, boolean>;
+  blockers: string[];
+}
+
+export interface ApprovalListResponse {
+  items: ApprovalListItem[];
+}
+
+export interface ActionDecisionResponse {
+  approval: Approval;
+  action: ActionRecord;
+  case: CaseSummary;
+  execution: ToolExecution | null;
+  message: string;
+}
+
+export interface WorkflowCheckpoint {
+  id: string;
+  case_id: string;
+  thread_id: string;
+  sequence: number;
+  node: string;
+  status: string;
+  workflow_version: number;
+  state: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface CheckpointListResponse {
+  items: WorkflowCheckpoint[];
 }
 
 export interface ApiErrorBody {

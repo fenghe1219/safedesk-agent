@@ -2,8 +2,13 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 
 import type {
+  ApprovalDetail,
+  ApprovalListItem,
+  ApprovalListResponse,
+  CaseAction,
   CaseDetail,
   CaseListResponse,
+  CheckpointListResponse,
   KnowledgeDocumentListResponse,
   MeResponse,
   MessageListResponse,
@@ -13,7 +18,8 @@ import type {
   TicketDraft,
   TicketListResponse,
   TimelineEvent,
-  TimelineResponse
+  TimelineResponse,
+  WorkflowCheckpoint
 } from "./types";
 
 const API_URL = (process.env.API_INTERNAL_URL ?? "http://localhost:8000").replace(/\/$/, "");
@@ -60,6 +66,27 @@ export async function getCaseTimeline(caseId: string): Promise<TimelineEvent[]> 
     `/api/cases/${encodeURIComponent(caseId)}/timeline`
   );
   return data?.items ?? [];
+}
+
+export async function getCaseAction(caseId: string): Promise<CaseAction | null> {
+  return serverFetch<CaseAction>(`/api/cases/${encodeURIComponent(caseId)}/action`);
+}
+
+export async function getCaseCheckpoints(caseId: string): Promise<WorkflowCheckpoint[]> {
+  const data = await serverFetch<CheckpointListResponse>(
+    `/api/cases/${encodeURIComponent(caseId)}/checkpoints`
+  );
+  return data?.items ?? [];
+}
+
+export async function getApprovals(status?: string): Promise<ApprovalListItem[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const data = await serverFetch<ApprovalListResponse>(`/api/approvals${query}`);
+  return data?.items ?? [];
+}
+
+export async function getApproval(approvalId: string): Promise<ApprovalDetail | null> {
+  return serverFetch<ApprovalDetail>(`/api/approvals/${encodeURIComponent(approvalId)}`);
 }
 
 export async function getCaseMessages(caseId: string): Promise<MessageListResponse> {

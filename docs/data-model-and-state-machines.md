@@ -1,12 +1,12 @@
 # SafeDesk 数据模型与状态机 v0.1
 
-> 状态：设计底稿，待进入实现前评审  
+> 状态：M0–M3 已实现；本文保留目标模型与后续扩展说明，实际字段以 Alembic 迁移和 Pydantic Schema 为准
 > 目标：让 Case、Ticket、Action、Approval 和审计共享同一事实源  
 > 关联文档：`docs/ia-and-flows.md`、`docs/openapi-and-sse.md`
 
 ## 1. 核心原则
 
-1. **业务数据库是唯一事实源**：LangGraph 保存编排检查点，但不能替代 Case、Action、Approval 的业务状态。
+1. **业务数据库是唯一事实源**：工作流检查点保存编排恢复信息，但不能替代 Case、Action、Approval 的业务状态。
 2. **状态变更必须可审计**：每次关键状态变化都有操作者、时间、原因和关联对象。
 3. **写操作必须可恢复**：审批恢复、进程重启和网络重试都不能造成重复副作用。
 4. **引用由服务端组装**：模型只选择 chunk ID，文档标题、页码、原文和版本来自数据库。
@@ -374,9 +374,10 @@ stateDiagram-v2
 - 外部工具已执行但结果事务失败时，保留 `RUNNING` 租约，由恢复任务对账；这是唯一需要补偿的事务边界。
 - 所有审计事件带 `trace_id`、`request_id` 和 actor。
 
-## 9. LangGraph 检查点
+## 9. 工作流检查点
 
 - `thread_id` 与 `case_id` 稳定映射，建议直接使用 `case_id` 派生。
+- M3 使用显式状态机 + 数据库检查点实现等价能力，未引入 LangGraph 运行时；后续可在不改变业务表契约的前提下替换编排实现。
 - 检查点保存节点、消息摘要、证据 ID、草稿 ID、Action ID、状态版本和 `workflow_version`。
 - 进入 `await_approval` 前，必须已提交 Action、Approval 请求和审计；检查点不能领先于业务事实。
 - 恢复前校验 Case 状态、Action 状态、Approval 决定、参数哈希、有效期和工具启用状态。

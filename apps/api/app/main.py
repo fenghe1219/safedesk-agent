@@ -6,7 +6,18 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import auth, cases, demo, health, knowledge, me, messages, tickets
+from app.api.routes import (
+    admin,
+    approvals,
+    auth,
+    cases,
+    demo,
+    health,
+    knowledge,
+    me,
+    messages,
+    tickets,
+)
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.security import new_id
@@ -69,6 +80,9 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router, prefix=settings.api_prefix)
     app.include_router(tickets.router, prefix=settings.api_prefix)
     app.include_router(tickets.case_router, prefix=settings.api_prefix)
+    app.include_router(approvals.router, prefix=settings.api_prefix)
+    app.include_router(approvals.case_router, prefix=settings.api_prefix)
+    app.include_router(admin.router, prefix=settings.api_prefix)
 
     @app.get(settings.api_prefix, include_in_schema=False)
     async def api_root() -> JSONResponse:
