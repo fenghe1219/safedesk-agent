@@ -14,13 +14,15 @@ from app.models.message import Citation, Message
 from app.models.user import User
 from app.schemas.message import CitationOut, MessageOut
 from app.services.action_service import (
+    action_intent_from_proposal,
     create_action_proposal,
     detect_action_intent,
     get_active_action_for_case,
     to_action_out,
     to_approval_out,
 )
-from app.services.admin_settings import get_runtime_config
+from app.services.admin_settings import get_active_prompt, get_runtime_config
+from app.services.agent import plan_from_agent_result, run_agent
 from app.services.answer import (
     MODEL_VERSION,
     PROMPT_VERSION,
@@ -30,6 +32,13 @@ from app.services.answer import (
 )
 from app.services.audit import record_event
 from app.services.case_service import CASE_PHASES, CASE_STATUS_LABELS, to_case_out
+from app.services.llm import get_llm_config
+from app.services.memory import (
+    list_memory_entries,
+    memory_context,
+    remember_message,
+    rewrite_query,
+)
 from app.services.retrieval import retrieve_chunks
 from app.services.ticket_service import (
     ticket_draft_payload,
@@ -155,28 +164,121 @@ async def process_message(
     )
 
     runtime = await get_runtime_config(db)
+    memory_entries = []
+    if runtime.memory_enabled:
+        await remember_message(
+            db,
+            case=case,
+            user=user,
+            message=user_message,
+            runtime=runtime,
+            request_id=request_id,
+        )
+        memory_entries = await list_memory_entries(db, user_id=user.id, case_id=case.id)
+    recent_messages = await _recent_messages(db, case.id, exclude_id=user_message.id)
+    rewrite = await rewrite_query(
+        db,
+        query=normalized,
+        case=case,
+        entries=memory_entries,
+        recent_messages=recent_messages,
+        runtime=runtime,
+        request_id=request_id,
+    )
+    resolved_query = rewrite.query
+    if rewrite.used_model or resolved_query != normalized:
+        await record_event(
+            db,
+            event_type="query.rewritten",
+            actor_id=user.id,
+            actor_role=user.role,
+            request_id=request_id,
+            case_id=case.id,
+            payload={
+                "original": normalized,
+                "rewritten": resolved_query,
+                "used_model": rewrite.used_model,
+                "fallback_reason": rewrite.fallback_reason,
+                "memory_entries": len(memory_entries),
+                "latency_ms": rewrite.latency_ms,
+                "token_count": rewrite.token_count,
+            },
+        )
     retrieval_started = time.perf_counter()
     hits = await retrieve_chunks(
         db,
-        normalized,
+        resolved_query,
         user,
         limit=runtime.retrieval_limit,
         min_score=runtime.retrieval_min_score,
     )
     retrieval_latency_ms = max(1, round((time.perf_counter() - retrieval_started) * 1000))
+    active_prompt = await get_active_prompt(db)
     answer_started = time.perf_counter()
-    plan = build_answer(
-        normalized,
-        hits,
-        max_citations=runtime.max_context_chunks,
-        style=runtime.answer_style,
-    )
+    agent_result = None
+    plan = None
+    use_agent = runtime.answer_mode in {"auto", "model"} and get_llm_config().enabled
+    if use_agent:
+        agent_result = await run_agent(
+            db,
+            case=case,
+            user=user,
+            query=resolved_query,
+            hits=hits,
+            prompt=active_prompt,
+            runtime=runtime,
+            recent_messages=recent_messages,
+            memory_text=memory_context(memory_entries),
+            request_id=request_id,
+        )
+        if agent_result is not None:
+            plan = plan_from_agent_result(
+                query=resolved_query,
+                hits=hits,
+                result=agent_result,
+                max_citations=runtime.max_context_chunks,
+            )
+    if plan is None:
+        plan = build_answer(
+            resolved_query,
+            hits,
+            max_citations=runtime.max_context_chunks,
+            style=runtime.answer_style,
+        )
+    if use_agent and (agent_result is None or agent_result.fallback_reason):
+        await record_event(
+            db,
+            event_type="agent.fallback",
+            actor_id=user.id,
+            actor_role=user.role,
+            request_id=request_id,
+            case_id=case.id,
+            payload={
+                "reason": (
+                    agent_result.fallback_reason
+                    if agent_result is not None
+                    else "provider_unavailable"
+                ),
+                "provider": get_llm_config().provider,
+                "model": get_llm_config().model,
+            },
+            result="fallback",
+        )
     answer_latency_ms = max(1, round((time.perf_counter() - answer_started) * 1000))
     action = None
     approval = None
     diagnostic = None
     if user.id == case.requester_id and sensitive_refusal(normalized) is None:
-        intent = detect_action_intent(normalized, case)
+        intent = None
+        if agent_result is not None and agent_result.write_proposal is not None:
+            intent = action_intent_from_proposal(
+                tool_name=agent_result.write_proposal.name,
+                args=agent_result.write_proposal.arguments,
+                case=case,
+                content=normalized,
+            )
+        elif agent_result is None or agent_result.fallback_reason is not None:
+            intent = detect_action_intent(normalized, case)
         if intent is not None:
             diagnostic = await call_read_tool(
                 db,
@@ -267,8 +369,14 @@ async def process_message(
         content=effective_plan.content,
         status="COMPLETE",
         citations=[],
-        model_version=MODEL_VERSION,
-        prompt_version=PROMPT_VERSION,
+        model_version=(
+            agent_result.model
+            if agent_result is not None
+            and agent_result.used_model
+            and not agent_result.fallback_reason
+            else MODEL_VERSION
+        ),
+        prompt_version=active_prompt.version or PROMPT_VERSION,
         request_id=request_id,
     )
     db.add(assistant_message)
@@ -307,18 +415,55 @@ async def process_message(
         request_id=request_id,
         case_id=case.id,
         payload={
-            "query": normalized,
+            "query": resolved_query,
+            "original_query": normalized,
+            "query_rewritten": resolved_query != normalized,
             "evidence_count": len(hits),
             "chunk_ids": [hit.chunk.id for hit in hits],
             "latency_ms": retrieval_latency_ms,
             "retrieval_limit": runtime.retrieval_limit,
             "retrieval_min_score": runtime.retrieval_min_score,
             "max_context_chunks": runtime.max_context_chunks,
+            "memory_entries": len(memory_entries),
             "estimated": True,
         },
     )
-    answer_tokens = max(1, len(effective_plan.content) // 2)
-    answer_cost_usd = round(answer_tokens * 0.0000006, 8)
+    if agent_result is not None and agent_result.usage.total_tokens:
+        answer_tokens = agent_result.usage.total_tokens
+        answer_cost_usd = agent_result.usage.cost_usd
+        usage_estimated = agent_result.usage.estimated
+    else:
+        answer_tokens = max(1, len(effective_plan.content) // 2)
+        answer_cost_usd = round(answer_tokens * 0.0000006, 8)
+        usage_estimated = True
+    if agent_result is not None:
+        await record_event(
+            db,
+            event_type="agent.completed",
+            actor_id=user.id,
+            actor_role=user.role,
+            request_id=request_id,
+            case_id=case.id,
+            payload={
+                "provider": get_llm_config().provider,
+                "model": agent_result.model,
+                "prompt_version": active_prompt.version,
+                "used_model": agent_result.used_model,
+                "steps": agent_result.steps,
+                "read_observations": len(agent_result.read_observations),
+                "write_proposed": (
+                    agent_result.write_proposal.name
+                    if agent_result.write_proposal is not None
+                    else None
+                ),
+                "fallback_reason": agent_result.fallback_reason,
+                "latency_ms": agent_result.latency_ms,
+                "token_count": agent_result.usage.total_tokens,
+                "cost_usd": agent_result.usage.cost_usd,
+                "trace": agent_result.trace,
+            },
+            result="fallback" if agent_result.fallback_reason else "success",
+        )
     await record_event(
         db,
         event_type="answer.refused" if effective_plan.refused else "answer.generated",
@@ -333,7 +478,10 @@ async def process_message(
             "latency_ms": answer_latency_ms,
             "token_count": answer_tokens,
             "cost_usd": answer_cost_usd,
-            "estimated": True,
+            "estimated": usage_estimated,
+            "agent_used": bool(agent_result and agent_result.used_model),
+            "agent_steps": agent_result.steps if agent_result else 0,
+            "fallback_reason": agent_result.fallback_reason if agent_result else None,
         },
     )
 
@@ -525,6 +673,20 @@ async def _case_user_texts(db: AsyncSession, case_id: str) -> list[str]:
         .order_by(Message.created_at.asc())
     )
     return list(result.scalars().all())
+
+
+async def _recent_messages(
+    db: AsyncSession, case_id: str, *, exclude_id: str | None = None
+) -> list[Message]:
+    result = await db.execute(
+        select(Message)
+        .where(Message.case_id == case_id)
+        .order_by(Message.created_at.desc(), Message.id.desc())
+        .limit(10)
+    )
+    messages = [message for message in result.scalars().all() if message.id != exclude_id]
+    messages.reverse()
+    return messages
 
 
 def _should_attempt_triage(*, case: Case, content: str, plan: AnswerPlan) -> bool:

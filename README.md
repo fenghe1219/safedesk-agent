@@ -2,7 +2,7 @@
 
 可审计、可评估、可人工接管的企业服务台 Agent 工作台。
 
-当前进度：**M4 评估、运营看板与管理配置已完成并通过本机验收**。在 M3 受控执行之上，已接入固定评估集、三类评估运行与人工复核、可配置回归门禁、运营看板、审计检索、消息反馈，以及工具、运行参数、Prompt、用户和演示数据管理。当前仍使用本地规则基线与 Mock 工具，不代表真实外部模型效果。
+当前进度：**M4 评估、运营看板与管理配置已完成；M5 AI Agent 增强已实现并通过本机测试**。在 M4 之上新增 OpenAI-compatible Agent 决策循环、服务端工具策略、分层记忆、多轮查询改写、模型回退、Prompt 实际生效和 RAG 消融实验。默认仍可离线运行本地规则基线；只有配置模型后才会调用外部 Provider，Mock 写工具仍需人工审批。
 
 ![M0 登录页](docs/design-preview/m0-login.png)
 
@@ -54,6 +54,10 @@ Browser
 - 工作流使用显式状态机与数据库检查点；检查点缺失时可由 Action/Approval 业务状态重建待审批节点。
 - M4 工具策略、Kill Switch、运行参数、Prompt 版本、用户与部门均可在 `/settings` 管理；检索/上下文/审批 TTL/回归阈值等运行参数会实际影响服务端行为。
 - M4 评估使用 40 条知识问答、80 条工单分诊和 15 条安全场景固定集；运行结果保留检索配置、指标、延迟、成本和人工复核记录。
+- M5 Agent 采用严格 JSON 决策循环：模型可以提议只读工具，服务端负责白名单、启用状态、参数校验和 `user_id` 覆盖；写工具只生成 Action/Approval，审批前不会执行。
+- M5 分层记忆按 `CASE` / `USER` 隔离：Case 记忆绑定 `case_id`，用户偏好绑定 `user_id` 并设置 180 天 TTL；读写删除均有审计。
+- M5 多轮追问先做查询改写：模型可用时只输出改写问题，失败时回退本地规则；改写前后问题与记忆数量写入审计。
+- M5 评估新增检索 Recall@K、MRR、回退率和平均 Token，并支持一次运行 2–4 个消融变体、自动与首个基线比较。
 - MVP 暂不引入 Redis。
 
 ## M0 已实现
@@ -147,8 +151,45 @@ Browser
 
 - 评估基线为本地 `extractive-rag-v1` 规则实现；知识问答、分诊和安全指标仅用于固定集回归，不代表开放域准确率。
 - 延迟、Token 和成本是本地估算，不构成外部模型账单或真实生产 SLA。
-- Prompt 版本目前提供版本记录、激活状态和管理审计；回答生成仍由本地规则链路完成，Prompt 文本尚未作为真实模型调用参数。
+- 未配置模型时，回答生成仍由本地规则链路完成；配置 `LLM_PROVIDER=openai_compatible` 后，当前激活的 Prompt 会作为真实模型系统提示词。模型失败或输出非法时自动回退本地规则。
 - 演示库包含 12 篇种子文档；若沿用旧演示卷，可能额外保留此前上传的历史文档，不影响种子数据完整性。
+
+## M5 AI Agent 增强
+
+- Provider：支持 OpenAI、Qwen、DeepSeek、Ollama 等 OpenAI-compatible `/chat/completions`；记录模型、Token、延迟和成本，优先使用 Provider usage，缺失时明确标记为估算。
+- 决策循环：模型输出严格 JSON；最多调用次数由 `AGENT_MAX_MODEL_CALLS` 与运行时 `max_steps` 共同限制，避免无限循环。
+- 工具边界：只读工具由服务端执行并把 observation 回传模型；写工具只生成 `write_proposal`，继续走既有 Action → Approval → ToolExecution 链路。
+- 身份边界：模型提供的 `user_id` 会被服务端覆盖为 Case 请求人，禁止扩大影响范围；未知工具、停用工具、越权写操作记录 `agent.tool_rejected`。
+- 引用边界：模型只选择 chunk 序号，引用标题、版本、页码、章节和原文快照由服务端从数据库重建；无合法引用时回退本地规则。
+- 失败回退：超时、HTTP 错误、空响应、非法 JSON、引用越界和步数超限都会记录原因并回退，不影响 Case 继续处理。
+- 分层记忆：`GET /api/memory?case_id=...` 查看当前用户可见记忆，`DELETE /api/memory/{entry_id}` 删除；跨用户删除返回 404。
+- 消融实验：`POST /api/eval/experiments` 一次运行 2–4 个变体，自动对比首个基线；前端 `/evaluations` 提供“完整 RAG / 关闭 RAG”入口。
+- 可观测性：新增 `agent.model_call`、`agent.tool_rejected`、`agent.output_rejected`、`agent.completed`、`agent.fallback`、`memory.written`、`memory.deleted`、`query.rewritten` 审计事件。
+
+### 配置真实模型
+
+在 `.env` 中设置（示例为本地 Ollama；云端 Provider 使用对应 Base URL 和 API Key）：
+
+```dotenv
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=http://host.docker.internal:11434/v1
+LLM_MODEL=qwen2.5:7b
+LLM_API_KEY=
+LLM_TIMEOUT_SECONDS=30
+LLM_TEMPERATURE=0.1
+LLM_MAX_OUTPUT_TOKENS=1200
+AGENT_MAX_MODEL_CALLS=2
+```
+
+保持 `LLM_PROVIDER=disabled` 即可完全离线运行。不要在未实际运行模型的情况下，把本地估算指标写成真实模型效果。
+
+### M5 演示路径
+
+1. 使用员工账号在 `/chat` 输入“我的 VPN 证书无效，帮我看看状态”，观察只读工具诊断和带引用回答；消息下方显示模型与 Prompt 版本。
+2. 输入“还是不行”，确认 Case 主题、环境和错误码被用于查询改写，并在时间线看到 `query.rewritten`。
+3. 输入“以后回答请详细一些”，通过 `GET /api/memory?case_id=...` 确认用户偏好作用域为 `USER`；切换其他员工确认不可见。
+4. 输入“帮我重置证书”，确认只生成待审批动作；切换到审批人前，数据库中没有对应 `ToolExecution`。
+5. 使用评估员进入 `/evaluations`，选择知识问答集，运行“完整 RAG / 关闭 RAG”消融，查看 Recall@K 差异和回归阻断。
 
 ## 本地开发
 
@@ -186,16 +227,18 @@ ruff check .
 
 ## 当前验证状态
 
-以下为 2026-11-06 的本机 M4 验收结果。
+以下包含 2026-11-06 的 M4 验收结果和 2026-11-07 的 M5 扩展验证结果。
 
 - `npm run typecheck`：通过。
 - `npm run build`：通过，App Router 页面与动态路由成功生成。
-- `pytest`：54/54 通过（在 M3 覆盖基础上增加固定数据集、三类评估、对比门禁、JSONL 导入、人工复核、看板统计、审计脱敏、运行时参数生效、用户/Prompt 管理、反馈候选语义和演示重置；测试使用 SQLite 内存库）。
+- `pytest`：61/61 通过（M4 的 54 条基础上增加 Agent 只读工具 observation、写提议审批边界、未知工具拒绝、Provider 失败回退、记忆隔离/删除、查询改写和 RAG 消融实验；测试使用 SQLite 内存库）。
 - `ruff check app migrations tests`：通过（FastAPI 的 `Depends` 默认参数规则 B008 已按框架惯例忽略）。
 - Docker Compose 运行态验收：db/api/web 均健康，Alembic 为 `0005_eval_dashboard_settings (head)`，12/12 篇演示知识、40/80/15 三个固定数据集成功加载。
 - M4 页面验收：Admin 的 `/evaluations`、`/dashboard`、`/audit`、`/settings` 均返回 200；Evaluator 仅可进入评估与知识，Auditor 仅可进入审计与看板，Support 可看板但不可审计，Employee 无看板/评估/审计/配置权限。
 - M4 数据验收：看板接口同时支持 `range=7d` 与 `range=30d`；审计返回事件类型与脱敏 payload；配置接口返回运行时参数、Prompt、用户和分类矩阵。
 - M4 真实评估：在 Compose/PostgreSQL 上运行安全场景固定集 15 条，Run 完成、结果分页 15 条、看板评估趋势和 `eval.run_completed` 审计均验证通过。
+- M5 迁移与运行态：Compose 重建后 db/api/web 均健康，Alembic 为 `0006_agent_memory (head)`；管理员配置接口返回 `agent_runtime`，默认 `provider=disabled`、`configured=false`。
+- M5 真实消融：在 Compose/PostgreSQL 上运行知识集 40 条（Recall 样本 34）。完整 RAG 的 Recall@K 为 97.06%、答案正确率 92.5%；关闭 RAG 后分别为 0.0% 和 15.0%，回归门禁阻断 `retrieval_recall_at_k`、`citation_consistency`、`refusal_accuracy`、`answer_accuracy`。
 - M4 运行参数：检索 Top-K、最低相关度、上下文片段、回答风格、审批 TTL 和回归阈值均由服务端读取；测试验证了参数变化对检索、回答、审批和比较结果的实际影响。
 - M4 存储修复：PostgreSQL 严格长度校验发现并修复了超长 M4 主键前缀；新增回归断言确保评估样本与反馈 ID 不超过 40 字符。
 - M4 API/Web 日志：页面与真实评估验收期间无未处理异常。
@@ -216,6 +259,8 @@ ruff check .
 - 信息架构与流程：`docs/ia-and-flows.md`
 - 数据模型与状态机：`docs/data-model-and-state-machines.md`
 - API 与 SSE 契约：`docs/openapi-and-sse.md`
+- Agent 架构与信任边界：`docs/agent-architecture.md`
+- 实验设计与指标口径：`docs/experiments.md`
 - Case 工作台稿：`docs/wireframes/case-workspace.md`
 - 审批队列稿：`docs/wireframes/approval-queue.md`
 - 静态视觉预览：`docs/design-preview/preview.png`

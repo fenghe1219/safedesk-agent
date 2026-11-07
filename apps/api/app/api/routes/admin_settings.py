@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import request_id, require_csrf, require_permission
+from app.core.config import settings
 from app.core.errors import AppError
 from app.db.session import get_db
 from app.models.user import User
@@ -10,6 +11,7 @@ from app.schemas.admin import (
     AdminUserListResponse,
     AdminUserOut,
     AdminUserUpdate,
+    AgentRuntimeInfo,
     DemoResetRequest,
     DemoResetResponse,
     PromptVersionCreate,
@@ -29,6 +31,7 @@ from app.services.admin_settings import (
     update_runtime_config,
 )
 from app.services.demo_reset import reset_demo_data
+from app.services.llm import get_llm_config
 
 router = APIRouter(prefix="/admin", tags=["admin-settings"])
 
@@ -38,11 +41,21 @@ async def get_settings_summary(
     user: User = Depends(require_permission("settings:manage")),
     db: AsyncSession = Depends(get_db),
 ) -> AdminSettingsResponse:
+    prompts = await list_prompt_versions(db, owner_id=user.id)
+    active_prompt = next((item for item in prompts if item.is_active), None)
     return AdminSettingsResponse(
         runtime_config=await get_runtime_config(db),
-        prompts=await list_prompt_versions(db, owner_id=user.id),
+        prompts=prompts,
         taxonomy=get_taxonomy(),
         users=await list_admin_users(db),
+        agent_runtime=AgentRuntimeInfo(
+            provider=get_llm_config().provider,
+            model=get_llm_config().model,
+            configured=get_llm_config().enabled,
+            api_key_configured=bool(settings.llm_api_key),
+            active_prompt_version=active_prompt.version if active_prompt else "m1-knowledge-v1",
+            max_model_calls=settings.agent_max_model_calls,
+        ),
     )
 
 

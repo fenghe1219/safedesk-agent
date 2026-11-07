@@ -147,6 +147,7 @@
 | POST | `/api/eval/datasets/import` | Evaluator/Admin | 导入 JSONL/CSV，最多 500 条 |
 | GET | `/api/eval/datasets/{dataset_id}` | Evaluator/Admin | 数据集与样本 |
 | POST | `/api/eval/runs` | Evaluator/Admin | 启动并同步完成一次评估 |
+| POST | `/api/eval/experiments` | Evaluator/Admin | 一次运行 2–4 个变体，自动与首个基线对比 |
 | GET | `/api/eval/runs` | Evaluator/Admin | 运行列表，可按数据集过滤 |
 | GET | `/api/eval/compare` | Evaluator/Admin | 对比两次 Run 的指标与回归门禁 |
 | GET | `/api/eval/runs/{run_id}` | Evaluator/Admin | 运行详情、指标与样本结果 |
@@ -167,8 +168,10 @@
 | GET | `/api/admin/kill-switch` | Admin | 读取全局写操作暂停状态 |
 | PUT | `/api/admin/kill-switch` | Admin | 开启/关闭 Kill Switch 并记录原因 |
 | POST | `/api/admin/reset-demo` | Admin | 输入 `RESET-DEMO` 后重置演示数据并保留审计 |
+| GET | `/api/memory?case_id=...` | 已登录用户（`case:read`） | 当前用户的 Case 记忆与用户偏好 |
+| DELETE | `/api/memory/{entry_id}` | 已登录用户（`case:read`） | 删除自己的记忆条目；跨用户返回 404 |
 
-上述 M4 端点均已实现。评估路径统一使用 `/api/eval/*`，不是 `/api/evaluations/*`；反馈路径是 `/api/messages/{message_id}/feedback`，不嵌套在 Case 路径下。
+上述端点均已实现。评估路径统一使用 `/api/eval/*`，不是 `/api/evaluations/*`；反馈路径是 `/api/messages/{message_id}/feedback`，不嵌套在 Case 路径下。
 
 ## 3. 关键请求与响应
 
@@ -460,9 +463,44 @@ POST /api/eval/runs
 - 对比：`GET /api/eval/compare?baseline_run_id=...&candidate_run_id=...`，响应包含逐指标 `delta`、`regressed`、`regression_blocked`、`threshold` 和 `blocking_metrics`。
 - 看板：`GET /api/dashboard?range=7d` 或 `range=30d`，响应包含指标、`sample_sizes`、`methodology` 和评估趋势。
 - 审计：`GET /api/audit/events?event_type=config.changed&q=...&offset=0&limit=50`；支持 `case_id`、`actor_id`、`result`、`start_at`、`end_at`。
-- 运行参数：`PUT /api/admin/runtime-config`，字段包括 `retrieval_limit`、`max_context_chunks`、`retrieval_min_score`、`max_steps`、`approval_ttl_seconds`、`evaluation_regression_threshold` 和 `answer_style`。
+- 运行参数：`PUT /api/admin/runtime-config`，字段包括 `retrieval_limit`、`max_context_chunks`、`retrieval_min_score`、`max_steps`、`approval_ttl_seconds`、`evaluation_regression_threshold`、`answer_style`、`answer_mode`、`memory_enabled`、`query_rewrite_enabled` 和 `agent_tools_enabled`。
 - 用户、Prompt、工具、Kill Switch 和演示重置均走 `/api/admin/*`；所有写请求要求 CSRF，并写入 `config.changed` 或 `demo.reset` 审计。
-- Prompt 版本目前是可管理的版本记录；本地规则回答链路尚未把 Prompt 文本作为真实模型参数。
+- 未配置模型时 Prompt 只作为版本记录；配置 `LLM_PROVIDER=openai_compatible` 后，激活的 Prompt 会作为真实系统提示词。模型失败时回退本地规则。
+
+### 3.10 Agent 记忆与消融
+
+读取当前用户可见记忆：
+
+```http
+GET /api/memory?case_id=case_xxx
+```
+
+响应中的 `scope` 为 `CASE` 或 `USER`；`CASE` 条目绑定当前 Case，`USER` 条目是当前用户的显式偏好，默认 180 天过期。接口只返回当前用户自己的条目。
+
+运行 RAG 消融：
+
+```json
+POST /api/eval/experiments
+{
+  "dataset_id": "evalds_xxx",
+  "variants": [
+    {
+      "label": "完整 RAG 基线",
+      "prompt_version": "m4-safe-v2-candidate",
+      "model_settings": {"provider": "local-rules", "answer_mode": "local"},
+      "retrieval_config": {"enabled": true, "limit": 3, "min_score": 0}
+    },
+    {
+      "label": "关闭 RAG 消融",
+      "prompt_version": "m4-safe-v2-candidate",
+      "model_settings": {"provider": "local-rules", "answer_mode": "local"},
+      "retrieval_config": {"enabled": false}
+    }
+  ]
+}
+```
+
+响应包含 `runs`（每个变体）和 `comparisons`（首个基线对比其余变体）。知识指标新增 `retrieval_recall_at_k`、`retrieval_mrr`、`fallback_rate` 和 `avg_token_count`；逐样本 `actual` 保留 `rag_enabled`、`answer_mode`、`provider`、`model`、`fallback_reason`、`retrieved_titles` 和 `retrieval_rank`。
 
 ## 4. 消息流 SSE
 

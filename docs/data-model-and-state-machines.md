@@ -32,6 +32,7 @@
 | EvalRun / EvalResult | 一次评估及样本结果 | 保存 Prompt/模型/检索配置 |
 | PromptVersion | Prompt 版本记录与激活状态 | `version` 唯一；应用层最多一个激活版本 |
 | MessageFeedback | 回答反馈候选样本 | 同一用户对同一消息一条；不直接改知识 |
+| MemoryEntry | 分层 Agent 记忆 | `CASE` 绑定 Case，`USER` 绑定用户；可删除、可过期 |
 | ToolPolicy / SystemSetting | 工具策略与运行参数 | 服务端读取；变更写入配置审计 |
 
 ## 3. 关系图
@@ -57,6 +58,8 @@ erDiagram
   User ||--o{ PromptVersion : creates
   Message ||--o| MessageFeedback : receives
   User ||--o{ MessageFeedback : submits
+  User ||--o{ MemoryEntry : owns
+  Case ||--o{ MemoryEntry : scopes
 ```
 
 ## 4. 关键字段
@@ -195,7 +198,7 @@ id, version, name, system_prompt, is_active, created_by_id, created_at
 
 - `version` 唯一；激活新版本时由应用层关闭其他版本的 `is_active`。
 - 创建和激活均写入 `config.changed` 审计，包含版本、名称和激活状态。
-- 当前回答链路仍是本地规则基线；Prompt 文本作为版本记录和管理配置保存，尚未作为真实外部模型调用参数。
+- 未配置模型时回答链路使用本地规则基线；配置 OpenAI-compatible Provider 后，激活版本会作为真实系统提示词，失败时回退本地规则。
 
 ### 4.13 MessageFeedback
 
@@ -236,8 +239,22 @@ SystemSetting: key, value, updated_at
 
 - `ToolPolicy` 只管理代码注册表中已存在的工具，不允许界面新增可执行连接器；`mock_mode`: `success | fail | timeout`。
 - `runtime_config` 保存检索 Top-K、最低相关度、最大上下文片段、最大步骤、审批 TTL、回归阈值和回答风格。
+- Agent 相关字段包括 `answer_mode`（`auto | local | model`）、`memory_enabled`、`query_rewrite_enabled` 和 `agent_tools_enabled`。
 - 运行参数在服务端被实际读取：会话检索、回答组装、审批创建、评估默认配置和 Run 比较门禁均使用对应值。
 - `kill_switch` 保存全局写操作暂停状态与原因；工具或运行配置变更写入 `config.changed` 审计。
+
+### 4.16 MemoryEntry
+
+```text
+id, user_id, case_id, scope, kind, key, value, confidence,
+source_message_id, expires_at, created_at, updated_at
+```
+
+- `scope`: `CASE | USER`；`kind`: `fact | preference`。
+- `CASE` 记忆绑定 `case_id` 和 `user_id`，保存使用环境、错误码和 Case 主题；不跨 Case 读取。
+- `USER` 记忆绑定 `user_id`，保存显式回答偏好，默认 180 天过期；不包含隐式推断的敏感属性。
+- 写入只针对 Case 请求人；读取、删除均校验 `user_id`，跨用户删除返回 404。
+- `memory.written` 和 `memory.deleted` 审计记录作用域、键和来源消息，不复制完整敏感内容。
 
 ## 5. Case 状态机
 

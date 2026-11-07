@@ -16,6 +16,8 @@ from app.models.config import PromptVersion
 from app.models.eval import EvalDataset, EvalItem, EvalResult, EvalRun
 from app.models.user import User
 from app.schemas.eval import (
+    AblationRequest,
+    AblationResponse,
     EvalCompareResponse,
     EvalDatasetDetail,
     EvalDatasetOut,
@@ -27,10 +29,12 @@ from app.schemas.eval import (
     EvalRunOut,
 )
 from app.services.action_service import detect_action_intent
-from app.services.admin_settings import get_runtime_config
+from app.services.admin_settings import get_active_prompt, get_runtime_config
+from app.services.agent import plan_from_agent_result, run_agent
 from app.services.answer import build_answer, sensitive_refusal
 from app.services.audit import record_event
 from app.services.eval_seed import ensure_eval_metadata
+from app.services.llm import get_llm_config
 from app.services.retrieval import retrieve_chunks
 from app.services.tools import get_tool_spec
 from app.services.triage import build_triage, recommend_assignee
@@ -48,14 +52,27 @@ METRIC_LABELS: dict[str, str] = {
     "approval_bypass_rate": "审批绕过率",
     "duplicate_execution_rate": "重复执行率",
     "injection_success_rate": "注入攻击成功率",
+    "retrieval_recall_at_k": "检索 Recall@K",
+    "retrieval_mrr": "检索 MRR",
+    "fallback_rate": "模型回退率",
     "avg_latency_ms": "平均延迟",
     "avg_cost_usd": "平均估算成本",
 }
 LOWER_IS_BETTER = frozenset(
-    {"approval_bypass_rate", "duplicate_execution_rate", "injection_success_rate"}
+    {
+        "approval_bypass_rate",
+        "duplicate_execution_rate",
+        "injection_success_rate",
+        "fallback_rate",
+    }
 )
 KEY_METRICS: dict[str, tuple[str, ...]] = {
-    "knowledge": ("citation_consistency", "refusal_accuracy", "answer_accuracy"),
+    "knowledge": (
+        "retrieval_recall_at_k",
+        "citation_consistency",
+        "refusal_accuracy",
+        "answer_accuracy",
+    ),
     "triage": ("category_accuracy", "priority_accuracy", "assignee_top1_accuracy"),
     "security": ("unauthorized_refusal_rate", "approval_bypass_rate", "injection_success_rate"),
 }
@@ -133,22 +150,16 @@ async def get_dataset_detail(
     )
 
 
-async def _resolve_prompt_version(db: AsyncSession, requested: str | None) -> str:
+async def _resolve_prompt(db: AsyncSession, requested: str | None) -> PromptVersion:
     if requested:
-        existing = await db.execute(
-            select(PromptVersion.version).where(PromptVersion.version == requested)
+        result = await db.execute(
+            select(PromptVersion).where(PromptVersion.version == requested)
         )
-        if existing.scalar_one_or_none() is None:
+        prompt = result.scalar_one_or_none()
+        if prompt is None:
             raise AppError("NOT_FOUND", "Prompt 版本不存在", 404)
-        return requested
-    result = await db.execute(
-        select(PromptVersion.version)
-        .where(PromptVersion.is_active.is_(True))
-        .order_by(PromptVersion.created_at.desc())
-        .limit(1)
-    )
-    active = result.scalar_one_or_none()
-    return active or "m1-knowledge-v1"
+        return prompt
+    return await get_active_prompt(db)
 
 
 async def _evaluate_knowledge(
@@ -158,13 +169,53 @@ async def _evaluate_knowledge(
     evaluator: User,
     retrieval_limit: int,
     retrieval_min_score: float,
+    prompt: PromptVersion,
+    runtime: Any,
+    rag_enabled: bool,
+    answer_mode: str,
+    model_override: str | None,
+    provider_override: str | None,
 ) -> dict[str, Any]:
     text = _text(item.input)
     started = time.perf_counter()
-    hits = await retrieve_chunks(
-        db, text, evaluator, limit=retrieval_limit, min_score=retrieval_min_score
+    hits = (
+        await retrieve_chunks(
+            db, text, evaluator, limit=retrieval_limit, min_score=retrieval_min_score
+        )
+        if rag_enabled
+        else []
     )
-    plan = build_answer(text, hits)
+    agent_result = None
+    plan = None
+    if answer_mode != "local" and get_llm_config(
+        model=model_override, provider=provider_override
+    ).enabled:
+        agent_result = await run_agent(
+            db,
+            case=None,
+            user=evaluator,
+            query=text,
+            hits=hits,
+            prompt=prompt,
+            runtime=runtime,
+            recent_messages=[],
+            memory_text="",
+            request_id=f"eval:{item.id}",
+            allow_tools=False,
+            grounded=rag_enabled,
+            model_override=model_override,
+            provider_override=provider_override,
+        )
+        if agent_result is not None and not agent_result.fallback_reason:
+            plan = plan_from_agent_result(
+                query=text,
+                hits=hits,
+                result=agent_result,
+                max_citations=runtime.max_context_chunks,
+                allow_uncited=not rag_enabled,
+            )
+    if plan is None:
+        plan = build_answer(text, hits, style=runtime.answer_style)
     latency_ms = max(1, round((time.perf_counter() - started) * 1000))
     citations = [
         {
@@ -180,6 +231,15 @@ async def _evaluate_knowledge(
     expected_refused = bool(item.expected.get("refused"))
     expected_titles = set(item.expected.get("doc_titles") or [])
     actual_titles = {str(citation["title"]) for citation in citations}
+    retrieved_titles = [hit.document.title for hit in hits]
+    retrieval_rank = next(
+        (
+            index
+            for index, title in enumerate(retrieved_titles, start=1)
+            if title in expected_titles
+        ),
+        0,
+    )
     failure_reason = ""
     if expected_refused:
         passed = plan.refused
@@ -197,14 +257,32 @@ async def _evaluate_knowledge(
     else:
         passed = True
 
-    tokens = _tokens(text) + _tokens(plan.content)
+    if agent_result is not None and agent_result.usage.total_tokens:
+        tokens = agent_result.usage.total_tokens
+        cost_usd = agent_result.usage.cost_usd
+        estimated = agent_result.usage.estimated
+    else:
+        tokens = _tokens(text) + _tokens(plan.content)
+        cost_usd = _estimated_cost(tokens)
+        estimated = True
     return {
         "actual": {
             "answer": plan.content,
             "refused": plan.refused,
             "intent": plan.intent,
             "citation_titles": sorted(actual_titles),
-            "estimated": True,
+            "retrieved_titles": retrieved_titles,
+            "retrieval_rank": retrieval_rank,
+            "rag_enabled": rag_enabled,
+            "answer_mode": answer_mode,
+            "provider": (
+                get_llm_config(model=model_override, provider=provider_override).provider
+                if agent_result is not None
+                else "local-rules"
+            ),
+            "model": agent_result.model if agent_result is not None else "extractive-rag-v1",
+            "fallback_reason": agent_result.fallback_reason if agent_result else None,
+            "estimated": estimated,
         },
         "passed": passed,
         "score": 1.0 if passed else 0.0,
@@ -212,7 +290,7 @@ async def _evaluate_knowledge(
         "citations": citations,
         "latency_ms": latency_ms,
         "token_count": tokens,
-        "cost_usd": _estimated_cost(tokens),
+        "cost_usd": cost_usd,
     }
 
 
@@ -354,6 +432,23 @@ def _compute_metrics(
     if dataset_type == "knowledge":
         answerable = [row for row in rows if not items[row["item_id"]].expected.get("refused")]
         coverage = sum(1 for row in answerable if row["citations"])
+        retrieval_rows = [
+            row
+            for row in answerable
+            if items[row["item_id"]].expected.get("doc_titles")
+        ]
+        retrieval_recall = sum(
+            1
+            for row in retrieval_rows
+            if set(row["actual"].get("retrieved_titles") or []).intersection(
+                set(items[row["item_id"]].expected.get("doc_titles") or [])
+            )
+        )
+        reciprocal_ranks = [
+            (1.0 / rank if rank else 0.0)
+            for row in retrieval_rows
+            for rank in [int(row["actual"].get("retrieval_rank") or 0)]
+        ]
         consistent = sum(
             1
             for row in answerable
@@ -373,6 +468,12 @@ def _compute_metrics(
                 "citation_consistency": _rate(consistent, len(answerable)),
                 "refusal_accuracy": _rate(refusal_correct, total),
                 "answer_accuracy": _rate(passed, total),
+                "retrieval_recall_at_k": _rate(retrieval_recall, len(retrieval_rows)),
+                "retrieval_mrr": (
+                    round(sum(reciprocal_ranks) / len(reciprocal_ranks), 4)
+                    if reciprocal_ranks
+                    else 0.0
+                ),
             }
         )
         sample_sizes.update(
@@ -381,6 +482,8 @@ def _compute_metrics(
                 "citation_consistency": len(answerable),
                 "refusal_accuracy": total,
                 "answer_accuracy": total,
+                "retrieval_recall_at_k": len(retrieval_rows),
+                "retrieval_mrr": len(retrieval_rows),
             }
         )
     elif dataset_type == "triage":
@@ -470,11 +573,19 @@ def _compute_metrics(
         {
             "sample_size": total,
             "pass_rate": _rate(passed, total),
+            "fallback_rate": _rate(
+                sum(1 for row in rows if row["actual"].get("fallback_reason")), total
+            ),
             "avg_latency_ms": round(sum(latencies) / total, 2) if total else 0.0,
             "avg_cost_usd": round(sum(costs) / total, 8) if total else 0.0,
+            "avg_token_count": round(
+                sum(int(row["token_count"]) for row in rows) / total, 2
+            )
+            if total
+            else 0.0,
             "metric_sample_sizes": sample_sizes,
-            "cost_note": "本地规则基线估算，无外部模型 API 账单",
-            "latency_note": "本机规则基线耗时，不代表生产模型延迟",
+            "cost_note": "模型成本按配置单价计算；本地规则仅为相对估算，不代表发票金额",
+            "latency_note": "延迟包含本地检索与模型调用，网络和供应商波动会影响结果",
         }
     )
     return metrics
@@ -498,7 +609,8 @@ async def run_evaluation(
     items = list(item_result.scalars().all())
     if not items:
         raise AppError("INVALID_STATE", "数据集没有可运行样本", 409)
-    prompt_version = await _resolve_prompt_version(db, payload.prompt_version)
+    prompt = await _resolve_prompt(db, payload.prompt_version)
+    prompt_version = prompt.version
     runtime = await get_runtime_config(db)
     retrieval_limit = int(
         payload.retrieval_config.get('limit', runtime.retrieval_limit)
@@ -508,17 +620,34 @@ async def run_evaluation(
         payload.retrieval_config.get('min_score', runtime.retrieval_min_score)
     )
     retrieval_min_score = min(max(retrieval_min_score, 0.0), 1.0)
+    rag_enabled = bool(payload.retrieval_config.get("enabled", True))
+    model_settings = dict(payload.model_settings or {})
+    answer_mode = str(model_settings.get("answer_mode") or runtime.answer_mode)
+    if answer_mode not in {"auto", "local", "model"}:
+        answer_mode = "auto"
+    provider_override = model_settings.get("provider")
+    if provider_override == "local-rules":
+        answer_mode = "local"
+        provider_override = None
+    model_override = model_settings.get("model")
+    model_config = {
+        "provider": provider_override or get_llm_config().provider,
+        "model": model_override or get_llm_config().model,
+        "answer_mode": answer_mode,
+        "rag_enabled": rag_enabled,
+        **model_settings,
+    }
     run = EvalRun(
         id=new_id("evalrun"),
         dataset_id=dataset.id,
         label=payload.label or f"{dataset.name} · {prompt_version}",
         prompt_version=prompt_version,
-        model_config=payload.model_settings
-        or {"provider": "local-rules", "model": "extractive-rag-v1"},
+        model_config=model_config,
         retrieval_config={
             **payload.retrieval_config,
             'limit': retrieval_limit,
             'min_score': retrieval_min_score,
+            'enabled': rag_enabled,
         },
         run_config=payload.run_config or {"mode": "single_config"},
         status="RUNNING",
@@ -539,6 +668,12 @@ async def run_evaluation(
                     evaluator=user,
                     retrieval_limit=retrieval_limit,
                     retrieval_min_score=retrieval_min_score,
+                    prompt=prompt,
+                    runtime=runtime,
+                    rag_enabled=rag_enabled,
+                    answer_mode=answer_mode,
+                    model_override=model_override,
+                    provider_override=provider_override,
                 )
             elif dataset.dataset_type == "triage":
                 evaluated = await _evaluate_triage(db, item=item)
@@ -828,6 +963,61 @@ async def compare_runs(
         threshold=threshold,
         blocking_metrics=blocking,
     )
+
+
+async def run_ablation(
+    db: AsyncSession,
+    *,
+    payload: AblationRequest,
+    user: User,
+) -> AblationResponse:
+    runs: list[EvalRunOut] = []
+    for variant in payload.variants:
+        runs.append(
+            await run_evaluation(
+                db,
+                user=user,
+                payload=EvalRunCreate(
+                    dataset_id=payload.dataset_id,
+                    label=variant.label,
+                    prompt_version=variant.prompt_version,
+                    model_settings={
+                        "ablation": True,
+                        **variant.model_settings,
+                    },
+                    retrieval_config=variant.retrieval_config,
+                    run_config={
+                        "mode": "ablation",
+                        "variant": variant.label,
+                        **variant.run_config,
+                    },
+                ),
+            )
+        )
+    baseline = runs[0]
+    comparisons = [
+        await compare_runs(
+            db,
+            baseline_run_id=baseline.id,
+            candidate_run_id=candidate.id,
+        )
+        for candidate in runs[1:]
+    ]
+    await record_event(
+        db,
+        event_type="eval.ablation_completed",
+        actor_id=user.id,
+        actor_role=user.role,
+        request_id=f"ablation:{baseline.id}",
+        payload={
+            "dataset_id": payload.dataset_id,
+            "run_ids": [run.id for run in runs],
+            "variants": [run.label for run in runs],
+            "comparison_count": len(comparisons),
+        },
+    )
+    await db.commit()
+    return AblationResponse(runs=runs, comparisons=comparisons)
 
 
 def parse_import_rows(filename: str, content: bytes) -> list[dict[str, Any]]:

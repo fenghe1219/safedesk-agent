@@ -321,6 +321,12 @@ export function CaseWorkspace({
                         引用 {message.citations.length} 条依据 · 可在中间查看原文
                       </p>
                     )}
+                    {(message.model_version || message.prompt_version) && (
+                      <p className="mt-1 font-mono text-[8px] text-ink-tertiary">
+                        {message.model_version || "model unknown"} · Prompt{" "}
+                        {message.prompt_version || "unknown"}
+                      </p>
+                    )}
                     {message.status === "COMPLETE" && (
                       <MessageFeedback messageId={message.id} csrfToken={csrfToken} />
                     )}

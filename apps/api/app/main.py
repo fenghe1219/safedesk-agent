@@ -20,6 +20,7 @@ from app.api.routes import (
     health,
     knowledge,
     me,
+    memory,
     messages,
     tickets,
 )
@@ -82,6 +83,7 @@ def create_app() -> FastAPI:
     app.include_router(demo.router, prefix=settings.api_prefix)
     app.include_router(cases.router, prefix=settings.api_prefix)
     app.include_router(messages.router, prefix=settings.api_prefix)
+    app.include_router(memory.router, prefix=settings.api_prefix)
     app.include_router(knowledge.router, prefix=settings.api_prefix)
     app.include_router(tickets.router, prefix=settings.api_prefix)
     app.include_router(tickets.case_router, prefix=settings.api_prefix)

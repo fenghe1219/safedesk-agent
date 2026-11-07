@@ -89,6 +89,30 @@ class ActionIntent:
     args: dict[str, Any]
 
 
+_WRITE_PROBE_TOOLS = {
+    "reset_vpn_certificate": "get_vpn_status",
+    "grant_app_access": "get_account_status",
+}
+
+
+def action_intent_from_proposal(
+    *,
+    tool_name: str,
+    args: dict[str, Any],
+    case: Case,
+    content: str,
+) -> ActionIntent | None:
+    probe = _WRITE_PROBE_TOOLS.get(tool_name)
+    if probe is None:
+        return None
+    return ActionIntent(
+        tool_name=tool_name,
+        diagnostic_tool=probe,
+        diagnostic_args={"user_id": case.requester_id},
+        args={**args, "reason": str(args.get("reason") or content[:300])},
+    )
+
+
 @dataclass(frozen=True)
 class ActionExecutionOutcome:
     approval: Approval

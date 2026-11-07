@@ -491,6 +491,19 @@ export interface EvalCompareResponse {
   blocking_metrics: string[];
 }
 
+export interface EvalAblationVariant {
+  label: string;
+  prompt_version?: string | null;
+  model_settings?: Record<string, unknown>;
+  retrieval_config?: Record<string, unknown>;
+  run_config?: Record<string, unknown>;
+}
+
+export interface EvalAblationResponse {
+  runs: EvalRun[];
+  comparisons: EvalCompareResponse[];
+}
+
 export interface DashboardDistributionItem {
   key: string;
   label: string;
@@ -578,6 +591,10 @@ export interface RuntimeConfig {
   approval_ttl_seconds: number;
   evaluation_regression_threshold: number;
   answer_style: "concise" | "detailed";
+  answer_mode: "auto" | "local" | "model";
+  memory_enabled: boolean;
+  query_rewrite_enabled: boolean;
+  agent_tools_enabled: boolean;
 }
 
 export interface PromptVersion {
@@ -602,6 +619,16 @@ export interface AdminSettings {
   prompts: PromptVersion[];
   taxonomy: TaxonomyResponse;
   users: AdminUser[];
+  agent_runtime: AgentRuntimeInfo;
+}
+
+export interface AgentRuntimeInfo {
+  provider: string;
+  model: string;
+  configured: boolean;
+  api_key_configured: boolean;
+  active_prompt_version: string;
+  max_model_calls: number;
 }
 
 export interface DemoResetResponse {

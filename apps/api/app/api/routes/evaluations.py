@@ -8,6 +8,8 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.admin import PromptVersionListResponse
 from app.schemas.eval import (
+    AblationRequest,
+    AblationResponse,
     EvalCompareResponse,
     EvalDatasetDetail,
     EvalDatasetListResponse,
@@ -30,6 +32,7 @@ from app.services.evaluation import (
     list_results,
     list_runs,
     review_result,
+    run_ablation,
     run_evaluation,
 )
 
@@ -93,6 +96,16 @@ async def create_run(
     db: AsyncSession = Depends(get_db),
 ) -> EvalRunOut:
     return await run_evaluation(db, payload=payload, user=user)
+
+
+@router.post("/experiments", response_model=AblationResponse, status_code=201)
+async def create_experiment(
+    payload: AblationRequest,
+    user: User = Depends(require_permission("eval:manage")),
+    _: None = Depends(require_csrf),
+    db: AsyncSession = Depends(get_db),
+) -> AblationResponse:
+    return await run_ablation(db, payload=payload, user=user)
 
 
 @router.get("/runs", response_model=EvalRunListResponse)

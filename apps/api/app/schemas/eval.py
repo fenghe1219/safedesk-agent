@@ -126,3 +126,21 @@ class EvalCompareResponse(BaseModel):
 class EvalRunDetail(BaseModel):
     run: EvalRunOut
     results: EvalResultListResponse
+
+
+class AblationVariant(BaseModel):
+    label: str = Field(min_length=1, max_length=120)
+    prompt_version: str | None = Field(default=None, max_length=80)
+    model_settings: dict[str, Any] = {}
+    retrieval_config: dict[str, Any] = {}
+    run_config: dict[str, Any] = {}
+
+
+class AblationRequest(BaseModel):
+    dataset_id: str = Field(min_length=1, max_length=40)
+    variants: list[AblationVariant] = Field(min_length=2, max_length=4)
+
+
+class AblationResponse(BaseModel):
+    runs: list[EvalRunOut]
+    comparisons: list[EvalCompareResponse]

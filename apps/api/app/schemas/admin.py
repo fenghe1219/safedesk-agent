@@ -35,6 +35,10 @@ class RuntimeConfig(BaseModel):
     approval_ttl_seconds: int = Field(default=900, ge=60, le=86400)
     evaluation_regression_threshold: float = Field(default=0.03, ge=0, le=1)
     answer_style: Literal["concise", "detailed"] = "concise"
+    answer_mode: Literal["auto", "local", "model"] = "auto"
+    memory_enabled: bool = True
+    query_rewrite_enabled: bool = True
+    agent_tools_enabled: bool = True
 
 
 class PromptVersionOut(BaseModel):
@@ -65,11 +69,21 @@ class TaxonomyResponse(BaseModel):
     roles: list[dict[str, Any]]
 
 
+class AgentRuntimeInfo(BaseModel):
+    provider: str
+    model: str
+    configured: bool
+    api_key_configured: bool
+    active_prompt_version: str
+    max_model_calls: int
+
+
 class AdminSettingsResponse(BaseModel):
     runtime_config: RuntimeConfig
     prompts: list[PromptVersionOut]
     taxonomy: TaxonomyResponse
     users: list[AdminUserOut]
+    agent_runtime: AgentRuntimeInfo
 
 
 class DemoResetRequest(BaseModel):

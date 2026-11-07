@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { ApiRequestError, clientRequest } from "@/lib/api";
 import type {
+  EvalAblationResponse,
   EvalCompareResponse,
   EvalDataset,
   EvalResult,
@@ -25,7 +26,10 @@ const METRICS_BY_TYPE: Record<string, Array<[string, string]>> = {
     ["citation_coverage", "引用覆盖率"],
     ["citation_consistency", "引用一致率"],
     ["refusal_accuracy", "拒答准确率"],
-    ["answer_accuracy", "答案正确率"]
+    ["answer_accuracy", "答案正确率"],
+    ["retrieval_recall_at_k", "检索 Recall@K"],
+    ["retrieval_mrr", "检索 MRR"],
+    ["fallback_rate", "模型回退率"]
   ],
   triage: [
     ["category_accuracy", "分类准确率"],
@@ -76,6 +80,7 @@ export function EvaluationsConsole({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
+  const [ablationRunning, setAblationRunning] = useState(false);
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -144,6 +149,52 @@ export function EvaluationsConsole({
       setError(err instanceof ApiRequestError ? err.message : "启动评估失败");
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function startAblation() {
+    if (!selectedDatasetId || ablationRunning) return;
+    if (selectedDataset?.dataset_type !== "knowledge") {
+      setError("RAG 消融只适用于知识问答数据集");
+      return;
+    }
+    setAblationRunning(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await clientRequest<EvalAblationResponse>("/api/eval/experiments", {
+        method: "POST",
+        csrfToken,
+        body: JSON.stringify({
+          dataset_id: selectedDatasetId,
+          variants: [
+            {
+              label: "完整 RAG 基线",
+              prompt_version: promptVersion,
+              model_settings: { provider: "local-rules", answer_mode: "local" },
+              retrieval_config: { enabled: true, limit: retrievalLimit, min_score: 0 }
+            },
+            {
+              label: "关闭 RAG 消融",
+              prompt_version: promptVersion,
+              model_settings: { provider: "local-rules", answer_mode: "local" },
+              retrieval_config: { enabled: false }
+            }
+          ]
+        })
+      });
+      setRuns((current) => [...response.runs, ...current]);
+      setSelectedRunId(response.runs[0]?.id ?? selectedRunId);
+      setBaselineId(response.runs[0]?.id ?? baselineId);
+      setCandidateId(response.runs[1]?.id ?? candidateId);
+      setComparison(response.comparisons[0] ?? null);
+      setNotice(
+        `消融已完成：${response.runs.length} 个变体，${response.comparisons.length} 组对比；候选指标下降会触发回归门禁。`
+      );
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : "RAG 消融运行失败");
+    } finally {
+      setAblationRunning(false);
     }
   }
 
@@ -364,8 +415,17 @@ export function EvaluationsConsole({
               <Icon name="flask" size={14} />
               {running ? "运行中…" : "运行评估"}
             </button>
+            <button
+              type="button"
+              onClick={() => void startAblation()}
+              disabled={ablationRunning || selectedDataset?.dataset_type !== "knowledge"}
+              className="sd-button-secondary w-full"
+            >
+              <Icon name="flask" size={14} />
+              {ablationRunning ? "消融运行中…" : "运行 RAG 消融（开 / 关）"}
+            </button>
             <p className="text-[9px] leading-5 text-ink-tertiary">
-              当前模型为本地规则基线 `extractive-rag-v1`。Token 成本和延迟均标记为本地估算，不能当作生产模型账单。
+              当前模型为本地规则基线 `extractive-rag-v1`。消融固定 Prompt、Top-K 和样本集，只切换检索开关；Token 成本和延迟均为本地估算。
             </p>
           </div>
         </div>
@@ -519,7 +579,9 @@ export function EvaluationsConsole({
               <h2 className="text-sm font-semibold text-ink">{selectedRun.label}</h2>
               <p className="mt-1 text-[10px] text-ink-tertiary">
                 {TYPE_LABELS[selectedRun.dataset_type]} · {selectedRun.sample_count} 条样本 · Prompt{" "}
-                {selectedRun.prompt_version} · {selectedRun.created_by_name || "系统"}
+                {selectedRun.prompt_version} · 检索{" "}
+                {selectedRun.retrieval_config.enabled === false ? "关闭" : "开启"} ·{" "}
+                {selectedRun.created_by_name || "系统"}
               </p>
             </div>
             <span className="sd-chip">{selectedRun.status}</span>

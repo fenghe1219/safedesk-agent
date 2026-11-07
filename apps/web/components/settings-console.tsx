@@ -332,6 +332,18 @@ export function SettingsConsole({
 
         <div className="sd-card p-5">
           <h2 className="text-sm font-semibold text-ink">运行参数</h2>
+          <div className="mt-2 rounded-control border border-line bg-subtle px-3 py-2 text-[10px] leading-5 text-ink-secondary">
+            <span className="font-medium text-ink">
+              {settings.agent_runtime.configured ? "模型已配置" : "本地规则模式"}
+            </span>
+            <span className="ml-2 font-mono text-[9px] text-ink-tertiary">
+              {settings.agent_runtime.provider} / {settings.agent_runtime.model}
+            </span>
+            <span className="ml-2">
+              Prompt {settings.agent_runtime.active_prompt_version} · 最多{" "}
+              {settings.agent_runtime.max_model_calls} 次模型调用
+            </span>
+          </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <NumberField
               label="检索 Top-K"
@@ -392,6 +404,53 @@ export function SettingsConsole({
                 <option value="concise">简洁</option>
                 <option value="detailed">详细</option>
               </select>
+            </label>
+            <label className="block sm:col-span-2">
+              <span className="sd-label">回答引擎</span>
+              <select
+                value={runtime.answer_mode}
+                onChange={(event) =>
+                  setRuntime((current) => ({
+                    ...current,
+                    answer_mode: event.target.value as RuntimeConfig["answer_mode"]
+                  }))
+                }
+                className="sd-input"
+              >
+                <option value="auto">自动：优先模型，失败回退本地</option>
+                <option value="model">强制模型，失败仍回退本地</option>
+                <option value="local">仅本地规则</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 rounded-control border border-line bg-subtle px-3 py-2 text-[10px] text-ink-secondary sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={runtime.memory_enabled}
+                onChange={(event) =>
+                  setRuntime((current) => ({ ...current, memory_enabled: event.target.checked }))
+                }
+              />
+              启用分层记忆（Case 事实 + 显式用户偏好）
+            </label>
+            <label className="flex items-center gap-2 rounded-control border border-line bg-subtle px-3 py-2 text-[10px] text-ink-secondary sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={runtime.query_rewrite_enabled}
+                onChange={(event) =>
+                  setRuntime((current) => ({ ...current, query_rewrite_enabled: event.target.checked }))
+                }
+              />
+              启用多轮查询改写
+            </label>
+            <label className="flex items-center gap-2 rounded-control border border-line bg-subtle px-3 py-2 text-[10px] text-ink-secondary sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={runtime.agent_tools_enabled}
+                onChange={(event) =>
+                  setRuntime((current) => ({ ...current, agent_tools_enabled: event.target.checked }))
+                }
+              />
+              允许模型提议工具（写操作仍需人工审批）
             </label>
           </div>
           <button
